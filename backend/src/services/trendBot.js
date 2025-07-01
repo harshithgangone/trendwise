@@ -9,7 +9,7 @@ class TrendBot {
   constructor() {
     this.isActive = false
     this.job = null
-    this.runInterval = "*/5 * * * *" // Run every 5 minutes (cron syntax)
+    this.runInterval = "0 */6 * * *" // Run every 6 hours
     this.lastRun = null
     this.nextRun = null
     this.stats = {
@@ -42,21 +42,20 @@ class TrendBot {
 
   async start() {
     if (this.isActive) {
-      console.log("🤖 [TREND BOT] Already active")
+      console.log("🤖 TrendBot already active")
       return { success: false, message: "Bot is already running" }
     }
 
-    console.log("🚀 [TREND BOT] Starting TrendBot...")
+    console.log("🚀 Starting TrendBot...")
     this.isActive = true
 
     // Calculate next run time
     this.nextRun = this.calculateNextRun()
 
-    // Schedule the job
+    // Schedule the job - but don't run immediately to let existing articles load first
     this.job = cron.schedule(
       this.runInterval,
       async () => {
-        console.log(`⏰ [TREND BOT] Scheduled run triggered`)
         await this.runCycle()
         // Update next run time after each execution
         this.nextRun = this.calculateNextRun()
@@ -67,12 +66,8 @@ class TrendBot {
       },
     )
 
-    console.log(`✅ [TREND BOT] Scheduled to run ${this.runInterval}`)
-    console.log(`⏰ [TREND BOT] Next scheduled run: ${this.nextRun.toISOString()}`)
-
-    // Run immediately on start
-    console.log(`🚀 [TREND BOT] Starting initial content generation...`)
-    await this.runCycle()
+    console.log(`✅ TrendBot scheduled to run ${this.runInterval}`)
+    console.log(`⏰ Next scheduled run: ${this.nextRun.toISOString()}`)
 
     return {
       success: true,
@@ -83,11 +78,11 @@ class TrendBot {
 
   async stop() {
     if (!this.isActive) {
-      console.log("🤖 [TREND BOT] Already inactive")
+      console.log("🤖 TrendBot already inactive")
       return { success: false, message: "Bot is not running" }
     }
 
-    console.log("🛑 [TREND BOT] Stopping TrendBot...")
+    console.log("🛑 Stopping TrendBot...")
     this.isActive = false
 
     if (this.job) {
@@ -100,30 +95,29 @@ class TrendBot {
     // Cleanup resources
     await trendCrawler.cleanup()
 
-    console.log("✅ [TREND BOT] Stopped successfully")
+    console.log("✅ TrendBot stopped successfully")
     return { success: true, message: "TrendBot stopped successfully" }
   }
 
   async runCycle() {
     if (!this.isActive) {
-      console.log("⚠️ [TREND BOT] Bot is inactive, skipping cycle.")
+      console.log("⚠️ Bot is inactive, skipping cycle.")
       return
     }
 
-    console.log("🔄 [TREND BOT] Starting new cycle...")
+    console.log("🔄 Starting new cycle...")
     this.stats.totalRuns++
     this.lastRun = new Date()
 
     try {
       // Step 1: Crawl trends
-      console.log("📊 [TREND BOT] Step 1: Crawling trends...")
       const trendResult = await trendCrawler.crawlTrends()
 
       if (!trendResult.success || !trendResult.trends || trendResult.trends.length === 0) {
         throw new Error(`Trend crawling failed: ${trendResult.error || "No trends found"}`)
       }
 
-      console.log(`✅ [TREND BOT] Found ${trendResult.trends.length} trends from ${trendResult.source}`)
+      console.log(`✅ Found ${trendResult.trends.length} trends from ${trendResult.source}`)
 
       // Step 2: Process each trend
       let articlesCreatedThisCycle = 0
@@ -145,12 +139,11 @@ class TrendBot {
           // Check if article already exists by title (as a secondary check)
           const existingArticle = await Article.findOne({ title: trendData.title })
           if (existingArticle) {
-            console.log(`⏭️ [TREND BOT] Article with title "${trendData.title}" already exists, skipping.`)
+            console.log(`⏭️ Article "${trendData.title}" already exists, skipping.`)
             continue
           }
 
           // Generate enhanced content using the correct method
-          console.log(`✍️ [TREND BOT] Generating content for: "${trendData.title}"`)
           const articleResult = await groqService.generateArticle(trendData)
 
           // Get featured image (prioritize existing image)
@@ -159,7 +152,7 @@ class TrendBot {
             try {
               thumbnail = await unsplashService.getFeaturedImage(trendData.title)
             } catch (imageError) {
-              console.warn(`⚠️ [TREND BOT] Image fetch failed, using placeholder`)
+              console.warn("⚠️ Image fetch failed, using placeholder")
               thumbnail = "/placeholder.svg?height=400&width=600"
             }
           }
@@ -194,6 +187,8 @@ class TrendBot {
             media: mediaData,
             readTime: articleResult.readTime || trendData.readTime,
             views: trendData.views || 0,
+            likes: 0,
+            saves: 0,
             status: "published",
             trendData: trendData.trendData,
             featured: trendData.featured || false,
@@ -206,9 +201,9 @@ class TrendBot {
 
           articlesCreatedThisCycle++
           this.stats.articlesGenerated++
-          console.log(`✅ [TREND BOT] Created article: "${articleData.title}"`)
+          console.log(`✅ Created article: "${articleData.title}"`)
         } catch (articleError) {
-          console.error(`❌ [TREND BOT] Failed to create article for "${trendData.title}":`, articleError.message)
+          console.error(`❌ Failed to create article for "${trendData.title}":`, articleError.message)
           this.stats.errors++
         }
         // Small delay between processing articles to avoid overwhelming APIs
@@ -216,19 +211,19 @@ class TrendBot {
       }
 
       this.stats.successfulRuns++
-      console.log(`🎉 [TREND BOT] Cycle completed successfully. Created ${articlesCreatedThisCycle} new articles`)
+      console.log(`🎉 Cycle completed successfully. Created ${articlesCreatedThisCycle} new articles`)
     } catch (error) {
-      console.error("❌ [TREND BOT] Cycle failed:", error.message)
+      console.error("❌ Cycle failed:", error.message)
       this.stats.errors++
     }
 
     console.log(
-      `📊 [TREND BOT] Stats: ${this.stats.successfulRuns}/${this.stats.totalRuns} successful runs, ${this.stats.articlesGenerated} articles generated`,
+      `📊 Stats: ${this.stats.successfulRuns}/${this.stats.totalRuns} successful runs, ${this.stats.articlesGenerated} articles generated`,
     )
   }
 
   async triggerManualRun() {
-    console.log("🎯 [TREND BOT] Manual run triggered")
+    console.log("🎯 Manual run triggered")
     await this.runCycle()
     return {
       success: true,

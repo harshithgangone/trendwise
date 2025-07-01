@@ -9,17 +9,6 @@ interface UserPreferences {
   recentlyViewed: string[]
 }
 
-interface Article {
-  _id: string
-  title: string
-  slug: string
-  excerpt: string
-  thumbnail: string
-  createdAt: string
-  tags: string[]
-  readTime: number
-}
-
 export function useUserPreferences() {
   const { data: session } = useSession()
   const [preferences, setPreferences] = useState<UserPreferences>({
@@ -34,9 +23,21 @@ export function useUserPreferences() {
       const stored = localStorage.getItem(`user_preferences_${session.user.email}`)
       if (stored) {
         try {
-          setPreferences(JSON.parse(stored))
+          const parsedPreferences = JSON.parse(stored)
+          // Ensure all arrays exist
+          setPreferences({
+            savedArticles: parsedPreferences.savedArticles || [],
+            likedArticles: parsedPreferences.likedArticles || [],
+            recentlyViewed: parsedPreferences.recentlyViewed || [],
+          })
         } catch (error) {
           console.error("Error parsing stored preferences:", error)
+          // Set default preferences if parsing fails
+          setPreferences({
+            savedArticles: [],
+            likedArticles: [],
+            recentlyViewed: [],
+          })
         }
       }
     }

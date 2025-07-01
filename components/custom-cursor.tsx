@@ -7,8 +7,11 @@ export function CustomCursor() {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
   const [isHovering, setIsHovering] = useState(false)
   const [isClicking, setIsClicking] = useState(false)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true) // prevent hydration mismatch bugs
+
     const updateMousePosition = (e: MouseEvent) => {
       setMousePosition({ x: e.clientX, y: e.clientY })
     }
@@ -57,9 +60,10 @@ export function CustomCursor() {
     }
   }, [])
 
+  if (!mounted) return null // 💥 this prevents hydration/SSR bugs
+
   return (
     <>
-      {/* Main cursor */}
       <motion.div
         className="fixed top-0 left-0 w-6 h-6 bg-blue-500 rounded-full pointer-events-none z-[9999] mix-blend-difference"
         animate={{
@@ -74,8 +78,6 @@ export function CustomCursor() {
           mass: 0.5,
         }}
       />
-
-      {/* Cursor trail */}
       <motion.div
         className="fixed top-0 left-0 w-8 h-8 border-2 border-blue-400 rounded-full pointer-events-none z-[9998]"
         animate={{

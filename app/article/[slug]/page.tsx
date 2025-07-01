@@ -1,9 +1,8 @@
-import { Suspense } from "react"
 import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
-import ArticlePageClientWrapper from "@/components/ArticlePageClientWrapper"
+import { ArticleContent } from "@/components/article-content"
+import { CommentSection } from "@/components/comment-section"
 import { Footer } from "@/components/footer"
-import { LoadingSpinner } from "@/components/loading-spinner"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 
 interface ArticlePageProps {
@@ -14,22 +13,18 @@ interface ArticlePageProps {
 
 async function getArticle(slug: string) {
   try {
-    console.log(`🔍 [ARTICLE PAGE] Fetching article: "${slug}"`)
-
     const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/articles/${slug}`, {
       cache: "no-store",
     })
 
     if (!response.ok) {
-      console.log(`❌ [ARTICLE PAGE] Article not found: "${slug}" (Status: ${response.status})`)
       return null
     }
 
     const article = await response.json()
-    console.log(`✅ [ARTICLE PAGE] Article loaded: "${article.title}"`)
     return article
   } catch (error) {
-    console.error("❌ [ARTICLE PAGE] Error fetching article:", error)
+    console.error("Error fetching article:", error)
     return null
   }
 }
@@ -76,7 +71,6 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   const article = await getArticle(params.slug)
 
   if (!article) {
-    console.log(`🚫 [ARTICLE PAGE] Article not found, showing 404: "${params.slug}"`)
     notFound()
   }
 
@@ -84,7 +78,12 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     <div className="min-h-screen bg-white">
       <Header />
       <main>
-        <ArticlePageClientWrapper article={article} />
+        <ErrorBoundary>
+          <ArticleContent article={article} />
+        </ErrorBoundary>
+        <ErrorBoundary>
+          <CommentSection articleId={article._id} />
+        </ErrorBoundary>
       </main>
       <Footer />
     </div>

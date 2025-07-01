@@ -51,6 +51,8 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
   const [article, setArticle] = useState(initialArticle)
   const [isSaved, setIsSaved] = useState(false)
   const [isLiked, setIsLiked] = useState(false)
+  const [isLiking, setIsLiking] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Update local state when preferences change
   useEffect(() => {
@@ -74,7 +76,7 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
         setArticle(updated)
       }
     } catch (error) {
-      console.error('Failed to refetch article:', error)
+      console.error("Failed to refetch article:", error)
     }
   }
 
@@ -108,13 +110,24 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
       return
     }
 
-    const newSavedState = await saveArticle(article._id)
-    setIsSaved(newSavedState)
-    await refetchArticle()
-    toast({
-      title: newSavedState ? "Article saved!" : "Article unsaved",
-      description: newSavedState ? "Article added to your saved list." : "Article removed from your saved list.",
-    })
+    setIsSaving(true)
+    try {
+      const newSavedState = await saveArticle(article._id)
+      setIsSaved(newSavedState)
+      await refetchArticle()
+      toast({
+        title: newSavedState ? "Article saved!" : "Article unsaved",
+        description: newSavedState ? "Article added to your saved list." : "Article removed from your saved list.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update save status.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleLike = async () => {
@@ -128,13 +141,24 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
       return
     }
 
-    const newLikedState = await likeArticle(article._id)
-    setIsLiked(newLikedState)
-    await refetchArticle()
-    toast({
-      title: newLikedState ? "Article liked!" : "Like removed",
-      description: newLikedState ? "Thanks for liking this article!" : "You unliked this article.",
-    })
+    setIsLiking(true)
+    try {
+      const newLikedState = await likeArticle(article._id)
+      setIsLiked(newLikedState)
+      await refetchArticle()
+      toast({
+        title: newLikedState ? "Article liked!" : "Like removed",
+        description: newLikedState ? "Thanks for liking this article!" : "You unliked this article.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update like status.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLiking(false)
+    }
   }
 
   return (
@@ -178,32 +202,30 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
               <Share2 className="h-4 w-4 mr-2" />
               Share
             </Button>
+
+            {/* Combined Save Button with Counter */}
             <Button
               variant="outline"
               size="sm"
               onClick={handleSave}
+              disabled={isSaving}
               className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
             >
               <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
-              {isSaved ? "Saved" : "Save"}
+              {isSaved ? "Saved" : "Save"} ({article.saves ?? 0})
             </Button>
-            <span className="flex items-center text-gray-500 text-sm ml-1">
-              <Bookmark className="h-4 w-4 mr-1" />
-              {article.saves ?? 0}
-            </span>
+
+            {/* Combined Like Button with Counter */}
             <Button
               variant="outline"
               size="sm"
               onClick={handleLike}
+              disabled={isLiking}
               className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
             >
               <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
-              {isLiked ? "Liked" : "Like"}
+              {isLiked ? "Liked" : "Like"} ({article.likes ?? 0})
             </Button>
-            <span className="flex items-center text-gray-500 text-sm ml-1">
-              <Heart className="h-4 w-4 mr-1" />
-              {article.likes ?? 0}
-            </span>
           </div>
         </div>
 
@@ -310,18 +332,20 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
           <Button
             variant="outline"
             onClick={handleSave}
+            disabled={isSaving}
             className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
           >
             <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
-            {isSaved ? "Saved" : "Save for Later"}
+            {isSaved ? "Saved" : "Save for Later"} ({article.saves ?? 0})
           </Button>
           <Button
             variant="outline"
             onClick={handleLike}
+            disabled={isLiking}
             className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
           >
             <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
-            {isLiked ? "Liked" : "Like Article"}
+            {isLiked ? "Liked" : "Like Article"} ({article.likes ?? 0})
           </Button>
         </div>
       </motion.div>

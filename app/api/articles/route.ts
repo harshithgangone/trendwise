@@ -4,33 +4,48 @@ import { type NextRequest, NextResponse } from "next/server"
 const mockArticles = [
   {
     _id: "1",
-    title: "The Future of Artificial Intelligence in 2024",
-    slug: "future-of-ai-2024",
-    excerpt: "Exploring the latest developments in AI technology and their impact on various industries.",
+    title: "The Future of AI in Healthcare",
+    slug: "future-ai-healthcare",
+    excerpt: "Exploring how artificial intelligence is revolutionizing medical diagnosis and treatment.",
+    content: "Artificial intelligence is transforming healthcare in unprecedented ways...",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date().toISOString(),
-    tags: ["AI", "Technology", "Future"],
+    tags: ["AI", "Healthcare", "Technology"],
     readTime: 5,
+    views: 1250,
+    likes: 89,
+    saves: 34,
+    featured: true,
   },
   {
     _id: "2",
-    title: "Sustainable Technology Trends Shaping Tomorrow",
-    slug: "sustainable-tech-trends",
-    excerpt: "How green technology is revolutionizing the way we live and work.",
+    title: "Climate Change Solutions for 2024",
+    slug: "climate-change-solutions-2024",
+    excerpt: "Innovative approaches to combat climate change and build a sustainable future.",
+    content: "As we face the growing challenges of climate change...",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date(Date.now() - 86400000).toISOString(),
-    tags: ["Sustainability", "Technology", "Environment"],
+    tags: ["Climate", "Environment", "Sustainability"],
     readTime: 7,
+    views: 2100,
+    likes: 156,
+    saves: 78,
+    featured: false,
   },
   {
     _id: "3",
     title: "The Rise of Remote Work Culture",
-    slug: "remote-work-culture-rise",
-    excerpt: "Understanding the shift towards remote work and its long-term implications.",
+    slug: "rise-remote-work-culture",
+    excerpt: "How remote work is reshaping the modern workplace and employee expectations.",
+    content: "Remote work has become more than just a trend...",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date(Date.now() - 172800000).toISOString(),
-    tags: ["Remote Work", "Culture", "Business"],
+    tags: ["Work", "Culture", "Technology"],
     readTime: 6,
+    views: 1800,
+    likes: 124,
+    saves: 56,
+    featured: false,
   },
 ]
 
@@ -46,6 +61,7 @@ export async function GET(request: NextRequest) {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 
     try {
+      console.log("🔍 [FRONTEND API] Attempting to fetch articles from backend database...")
       const response = await fetch(
         `${backendUrl}/api/articles?page=${page}&limit=${limit}&search=${search}&tag=${tag}`,
         {
@@ -54,17 +70,43 @@ export async function GET(request: NextRequest) {
             Accept: "application/json",
             "Content-Type": "application/json",
           },
+          // Add timeout to prevent hanging
+          signal: AbortSignal.timeout(5000),
         },
       )
 
       if (response.ok) {
         const data = await response.json()
-        return NextResponse.json(data)
+        console.log(
+          `✅ [FRONTEND API] Successfully fetched ${data.articles?.length || data.length || 0} articles from database`,
+        )
+
+        // Handle different response formats from backend
+        if (Array.isArray(data)) {
+          return NextResponse.json({
+            success: true,
+            articles: data,
+            pagination: {
+              page: Number.parseInt(page),
+              limit: Number.parseInt(limit),
+              total: data.length,
+              pages: Math.ceil(data.length / Number.parseInt(limit)),
+            },
+          })
+        } else if (data.articles) {
+          return NextResponse.json(data)
+        } else {
+          throw new Error("Invalid response format from backend")
+        }
       } else {
+        console.log(`⚠️ [FRONTEND API] Backend responded with status ${response.status}, falling back to mock data`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
-      console.log("Backend not available, using mock data:", backendError.message)
+      console.log(
+        "⚠️ [FRONTEND API] Backend not available, using mock data:",
+        backendError instanceof Error ? backendError.message : "Unknown error",
+      )
 
       // Filter mock data based on search and tag
       let filteredArticles = mockArticles
@@ -95,12 +137,20 @@ export async function GET(request: NextRequest) {
       })
     }
   } catch (error) {
-    console.error("Error in articles API route:", error)
+    console.error("❌ [FRONTEND API] Error in articles API route:", error)
+
+    // Always return a response, even on error
     return NextResponse.json(
       {
         success: false,
         error: "Failed to fetch articles",
-        articles: mockArticles, // Fallback to mock data
+        articles: mockArticles,
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: mockArticles.length,
+          pages: Math.ceil(mockArticles.length / 10),
+        },
       },
       { status: 500 },
     )
