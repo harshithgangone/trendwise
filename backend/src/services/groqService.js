@@ -5,18 +5,16 @@ const groq = new Groq({
 })
 
 class GroqService {
+  constructor() {
+    console.log("🤖 Groq AI Service initialized")
+  }
+
   async generateArticle(trendData) {
     try {
-      console.log(`🤖 [GROQ AI] Starting article generation for: "${trendData.query}"`)
-      console.log(`📊 [GROQ AI] Trend data:`, {
-        query: trendData.query,
-        searchVolume: trendData.searchVolume,
-        source: trendData.source,
-        relatedTopics: trendData.relatedTopics?.length || 0,
-      })
+      console.log(`🚀 Groq AI: Starting article generation for "${trendData.query}"`)
 
       const prompt = this.createArticlePrompt(trendData)
-      console.log(`📝 [GROQ AI] Sending prompt to Groq API...`)
+      console.log(`🔗 Groq AI: Connecting to Groq API...`)
 
       const chatCompletion = await groq.chat.completions.create({
         messages: [
@@ -43,24 +41,22 @@ class GroqService {
         throw new Error("No content generated from Groq API")
       }
 
-      console.log(`✅ [GROQ AI] Successfully generated content (${content.length} characters)`)
-      console.log(`🔄 [GROQ AI] Parsing AI-generated content...`)
+      console.log(`✅ Groq AI: Successfully connected and generated content (${content.length} characters)`)
 
       const parsedArticle = this.parseArticleContent(content, trendData)
-      console.log(`✅ [GROQ AI] Article successfully parsed and validated`)
-      console.log(`📈 [GROQ AI] Generated article: "${parsedArticle.title}" (${parsedArticle.readTime} min read)`)
+      console.log(`🎯 Groq AI: Article processed - "${parsedArticle.title}" (${parsedArticle.readTime} min read)`)
 
       return parsedArticle
     } catch (error) {
-      console.error(`❌ [GROQ AI] Error generating article with Groq:`, error.message)
-      console.log(`🔄 [GROQ AI] Falling back to high-quality template article`)
+      console.error(`❌ Groq AI: Generation failed -`, error.message)
+      console.log(`🔄 Groq AI: Using fallback template`)
       return this.generateFallbackArticle(trendData)
     }
   }
 
   async generateTweetContent(prompt) {
     try {
-      console.log(`🐦 [GROQ AI] Generating tweet content...`)
+      console.log(`🐦 Groq AI: Generating tweet content...`)
 
       const chatCompletion = await groq.chat.completions.create({
         messages: [
@@ -87,16 +83,16 @@ class GroqService {
         throw new Error("No tweet content generated")
       }
 
-      console.log(`✅ [GROQ AI] Tweet content generated (${content.length} characters)`)
+      console.log(`✅ Groq AI: Tweet content generated successfully`)
 
       // Parse the JSON response
       const cleanContent = this.cleanJsonContent(content)
       const parsed = JSON.parse(cleanContent)
 
-      console.log(`✅ [GROQ AI] Generated ${parsed.tweets?.length || 0} tweets`)
+      console.log(`🎯 Groq AI: Generated ${parsed.tweets?.length || 0} tweets`)
       return parsed
     } catch (error) {
-      console.error(`❌ [GROQ AI] Error generating tweets:`, error.message)
+      console.error(`❌ Groq AI: Tweet generation failed -`, error.message)
       return null
     }
   }
@@ -158,12 +154,11 @@ Respond with ONLY this JSON structure (no markdown, no code blocks):
 
   parseArticleContent(content, trendData) {
     try {
-      console.log(`🔍 [GROQ AI] Parsing JSON response...`)
+      console.log(`🔍 Groq AI: Parsing generated content...`)
 
       const cleanContent = this.cleanJsonContent(content)
-      console.log(`🔧 [GROQ AI] JSON cleaned, attempting to parse...`)
       const parsed = JSON.parse(cleanContent)
-      console.log(`✅ [GROQ AI] JSON successfully parsed`)
+      console.log(`✅ Groq AI: Content parsed successfully`)
 
       // Validate and return with defaults
       const result = {
@@ -179,17 +174,17 @@ Respond with ONLY this JSON structure (no markdown, no code blocks):
         readTime: parsed.readTime || 6,
       }
 
-      console.log(`✅ [GROQ AI] Article validation complete - REAL AI CONTENT GENERATED`)
+      console.log(`🎉 Groq AI: Article generation complete - AI content ready`)
       return result
     } catch (error) {
-      console.error(`❌ [GROQ AI] JSON parsing failed:`, error.message)
-      console.log(`🔄 [GROQ AI] Using fallback article structure`)
+      console.error(`❌ Groq AI: Parsing failed -`, error.message)
+      console.log(`🔄 Groq AI: Using fallback structure`)
       return this.generateFallbackArticle(trendData)
     }
   }
 
   generateFallbackArticle(trendData) {
-    console.log(`📝 [GROQ AI] Generating high-quality fallback article for: "${trendData.query}"`)
+    console.log(`📝 Groq AI: Generating fallback article for "${trendData.query}"`)
 
     const title = `${trendData.query}: Comprehensive Market Analysis and Future Outlook`
     const content = this.generateFallbackContent(trendData)
@@ -206,7 +201,7 @@ Respond with ONLY this JSON structure (no markdown, no code blocks):
       readTime: 6,
     }
 
-    console.log(`✅ [GROQ AI] Fallback article generated - HIGH QUALITY TEMPLATE CONTENT`)
+    console.log(`✅ Groq AI: Fallback article ready`)
     return result
   }
 
@@ -246,7 +241,7 @@ Respond with ONLY this JSON structure (no markdown, no code blocks):
 
   async generateSummary(text, maxLength = 200) {
     try {
-      console.log(`📝 [GROQ AI] Generating summary (max ${maxLength} chars)`)
+      console.log(`📝 Groq AI: Generating summary...`)
 
       const chatCompletion = await groq.chat.completions.create({
         messages: [
@@ -261,10 +256,10 @@ Respond with ONLY this JSON structure (no markdown, no code blocks):
       })
 
       const summary = chatCompletion.choices[0]?.message?.content || text.substring(0, maxLength)
-      console.log(`✅ [GROQ AI] Summary generated (${summary.length} chars)`)
+      console.log(`✅ Groq AI: Summary generated`)
       return summary
     } catch (error) {
-      console.error(`❌ [GROQ AI] Error generating summary:`, error.message)
+      console.error(`❌ Groq AI: Summary generation failed -`, error.message)
       return text.substring(0, maxLength)
     }
   }

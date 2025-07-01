@@ -5,6 +5,7 @@ class GNewsService {
     this.apiKey = process.env.GNEWS_API_KEY || "d99356d6e3301a4baa601c68490f2048"
     this.baseURL = "https://gnews.io/api/v4"
     this.categories = ["technology", "business", "health", "science", "entertainment", "sports"]
+    console.log("🔗 GNews Service initialized")
   }
 
   // Generate a proper slug from title
@@ -68,7 +69,7 @@ class GNewsService {
 
   async getTopHeadlines(category = "general", lang = "en", country = "us", max = 10) {
     try {
-      console.log(`📰 [GNEWS] Fetching top headlines - Category: ${category}, Max: ${max}`)
+      console.log(`📰 GNews: Connecting to API for ${category} headlines...`)
 
       const response = await axios.get(`${this.baseURL}/top-headlines`, {
         params: {
@@ -82,6 +83,8 @@ class GNewsService {
       })
 
       if (response.data && response.data.articles) {
+        console.log(`✅ GNews: Successfully connected! Found ${response.data.articles.length} articles`)
+
         const processedArticles = response.data.articles.map((article) => ({
           query: article.title,
           searchVolume: this.estimateSearchVolume(article),
@@ -102,20 +105,20 @@ class GNewsService {
           originalArticle: article,
         }))
 
-        console.log(`✅ [GNEWS] Successfully fetched ${processedArticles.length} REAL news articles`)
+        console.log(`🎯 GNews: Processed ${processedArticles.length} articles for content generation`)
         return processedArticles
       }
 
       throw new Error("Invalid response structure from GNews API")
     } catch (error) {
-      console.error(`❌ [GNEWS] Error fetching headlines:`, error.message)
+      console.error(`❌ GNews: Connection failed -`, error.message)
       throw error
     }
   }
 
   async searchNews(query, lang = "en", country = "us", limit = 10) {
     try {
-      console.log(`🔍 [GNEWS] Searching news for: "${query}"`)
+      console.log(`🔍 GNews: Searching for "${query}"...`)
 
       const response = await axios.get(`${this.baseURL}/search`, {
         params: {
@@ -130,20 +133,20 @@ class GNewsService {
       })
 
       if (response.data && response.data.articles) {
-        console.log(`✅ [GNEWS] Found ${response.data.articles.length} articles for "${query}"`)
+        console.log(`✅ GNews: Search successful! Found ${response.data.articles.length} articles`)
         return response.data.articles
       }
 
       return []
     } catch (error) {
-      console.error(`❌ [GNEWS] Search error for "${query}":`, error.message)
+      console.error(`❌ GNews: Search failed for "${query}":`, error.message)
       return []
     }
   }
 
   async getTrendingTopics() {
     try {
-      console.log("🔥 [GNEWS] Fetching trending topics from GNews API...")
+      console.log("🔥 GNews: Fetching trending topics...")
 
       const allArticles = []
 
@@ -163,7 +166,7 @@ class GNewsService {
           })
 
           if (response.data && response.data.articles) {
-            console.log(`✅ [GNEWS] Found ${response.data.articles.length} articles in ${category}`)
+            console.log(`✅ GNews: Found ${response.data.articles.length} articles in ${category}`)
             allArticles.push(
               ...response.data.articles.map((article) => ({
                 ...article,
@@ -172,13 +175,15 @@ class GNewsService {
             )
           }
         } catch (categoryError) {
-          console.warn(`⚠️ [GNEWS] Failed to fetch ${category}:`, categoryError.message)
+          console.warn(`⚠️ GNews: Failed to fetch ${category}:`, categoryError.message)
         }
       }
 
       if (allArticles.length === 0) {
         throw new Error("No articles found from any category")
       }
+
+      console.log(`🎉 GNews: Total articles collected: ${allArticles.length}`)
 
       // Transform articles to our format
       const transformedArticles = allArticles.map((article) => {
@@ -221,7 +226,7 @@ class GNewsService {
         }
       })
 
-      console.log(`🎉 [GNEWS] Successfully processed ${transformedArticles.length} trending articles`)
+      console.log(`🚀 GNews: Successfully processed ${transformedArticles.length} articles for AI generation`)
 
       return {
         success: true,
@@ -230,7 +235,7 @@ class GNewsService {
         timestamp: new Date().toISOString(),
       }
     } catch (error) {
-      console.error("❌ [GNEWS] Error fetching trending topics:", error.message)
+      console.error("❌ GNews: Error fetching trending topics:", error.message)
 
       // Return high-quality fallback data
       return {
