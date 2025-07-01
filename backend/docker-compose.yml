@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  trendwise-backend:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb+srv://harshithmongo:HARSHAMDB1234@cluster0.kkwkg.mongodb.net/trendwise
+      - GROQ_API_KEY=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
+      - UNSPLASH_ACCESS_KEY=your_unsplash_key_here
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  # Optional: MongoDB local instance
+  # mongodb:
+  #   image: mongo:7
+  #   ports:
+  #     - "27017:27017"
+  #   environment:
+  #     MONGO_INITDB_ROOT_USERNAME: admin
+  #     MONGO_INITDB_ROOT_PASSWORD: password
+  #   volumes:
+  #     - mongodb_data:/data/db
+
+# volumes:
+#   mongodb_data:

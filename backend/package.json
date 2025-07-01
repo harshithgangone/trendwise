@@ -1,0 +1,33 @@
+{
+  "name": "trendwise-backend",
+  "version": "1.0.0",
+  "description": "Backend API for TrendWise - AI-powered trending news platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["news", "trends", "ai", "api", "fastify"],
+  "author": "TrendWise Team",
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "^4.24.3",
+    "@fastify/cors": "^8.4.0",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^9.0.1",
+    "mongoose": "^8.0.3",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.2",
+    "groq-sdk": "^0.3.3",
+    "puppeteer": "^21.6.1",
+    "cheerio": "^1.0.0-rc.12",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
