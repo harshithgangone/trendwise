@@ -399,7 +399,7 @@ npm run test:e2e
 For any questions or clarifications regarding this internship project:
 
 - **Internshala Message**: [Direct message on internshala platform]
-- **Email**: [your-email@example.com]
+- **Email**: [harshith.gangone@gmail.com]
 - **GitHub Issues**: [Repository issues section]
 - **Project Demo**: Available for live demonstration
 
@@ -409,8 +409,8 @@ For any questions or clarifications regarding this internship project:
   <p><strong>TrendWise - AI-Powered Blog Platform</strong></p>
   <p>Developed for True IAS Internship Program</p>
   <p>
-    <a href="https://trendwise-ai.vercel.app">Live Demo</a> •
+    <a href="https://trendwise-frontend.vercel.app/">Live Demo</a> •
     <a href="https://github.com/yourusername/trendwise">GitHub</a> •
-    <a href="https://trendwise-ai.vercel.app/admin">Admin</a>
+    <a href="https://trendwise-frontend.vercel.app/admin">Admin</a>
   </p>
 </div>

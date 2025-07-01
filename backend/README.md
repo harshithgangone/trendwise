@@ -594,8 +594,8 @@ describe('GroqService', () => {
   <p><strong>TrendWise Backend - Internship Project</strong></p>
   <p>High-Performance Fastify API with AI Integration</p>
   <p>
-    <a href="https://trendwise-backend.railway.app">Live API</a> •
-    <a href="https://trendwise-backend.railway.app/health">Health Check</a> •
+    <a href="https://trendwise-backend-frpp.onrender.com">Live API</a> •
+    <a href="https://trendwise-backend-frpp.onrender.com/health">Health Check</a> •
     <a href="../README.md">Main Documentation</a>
   </p>
 </div>
