@@ -101,84 +101,7 @@ class GNewsService {
     })
   }
 
-  async getTopHeadlines(category = "general", lang = "en", country = "us", max = 10) {
-    try {
-      console.log(`📰 GNews: Connecting to API for ${category} headlines...`)
-
-      const response = await axios.get(`${this.baseURL}/top-headlines`, {
-        params: {
-          category,
-          lang,
-          country,
-          max,
-          apikey: this.apiKey,
-        },
-        timeout: this.requestTimeout,
-      })
-
-      if (response.data && response.data.articles) {
-        console.log(`✅ GNews: Successfully connected! Found ${response.data.articles.length} articles`)
-
-        const processedArticles = response.data.articles.map((article) => ({
-          query: article.title,
-          searchVolume: this.estimateSearchVolume(article),
-          relatedTopics: this.extractTopics(article.title, article.description),
-          articles: [
-            {
-              title: article.title,
-              url: article.url,
-              source: article.source.name,
-              description: article.description,
-              image: article.image,
-              publishedAt: article.publishedAt,
-            },
-          ],
-          geo: country.toUpperCase(),
-          source: "gnews",
-          category: category,
-          originalArticle: article,
-        }))
-
-        console.log(`🎯 GNews: Processed ${processedArticles.length} articles for content generation`)
-        return processedArticles
-      }
-
-      throw new Error("Invalid response structure from GNews API")
-    } catch (error) {
-      console.error(`❌ GNews: Connection failed -`, error.message)
-      throw error
-    }
-  }
-
-  async searchNews(query, lang = "en", country = "us", limit = 10) {
-    try {
-      console.log(`🔍 GNews: Searching for "${query}"...`)
-
-      const response = await axios.get(`${this.baseURL}/search`, {
-        params: {
-          q: query,
-          lang,
-          country,
-          max: limit,
-          apikey: this.apiKey,
-          sortby: "relevance",
-        },
-        timeout: this.requestTimeout,
-      })
-
-      if (response.data && response.data.articles) {
-        console.log(`✅ GNews: Search successful! Found ${response.data.articles.length} articles`)
-        return response.data.articles
-      }
-
-      return []
-    } catch (error) {
-      console.error(`❌ GNews: Search failed for "${query}":`, error.message)
-      return []
-    }
-  }
-
-  async getTrendingTopics(limit = 10) {
+  async getTrendingTopics(limit = 50) {
     console.log("🔍 [GNEWS SERVICE] Starting trending topics fetch...")
     console.log(`📊 [GNEWS SERVICE] Limit: ${limit}, API Key: ${this.apiKey ? "Present" : "Missing"}`)
 
@@ -188,7 +111,7 @@ class GNewsService {
         console.log("🌐 [GNEWS SERVICE] Attempting GNews API request...")
         const result = await this.fetchFromGNewsAPI(limit)
         if (result.success) {
-          console.log(`✅ [GNEWS SERVICE] Successfully fetched ${result.articles.length} articles from GNews API`)
+          console.log(`✅ [GNEWS SERVICE] Successfully fetched ${result.trends.length} articles from GNews API`)
           return result
         }
       } catch (error) {
@@ -201,7 +124,7 @@ class GNewsService {
     return await this.scrapeGoogleNews(limit)
   }
 
-  async fetchFromGNewsAPI(limit = 10) {
+  async fetchFromGNewsAPI(limit = 50) {
     try {
       console.log("📡 [GNEWS SERVICE] Making API request to GNews...")
 
@@ -210,7 +133,7 @@ class GNewsService {
           apikey: this.apiKey,
           lang: "en",
           country: "us",
-          max: limit,
+          max: limit, // Get all available articles up to limit
         },
         timeout: this.requestTimeout,
         headers: {
@@ -231,7 +154,7 @@ class GNewsService {
             url: article.url,
             publishedAt: article.publishedAt || new Date().toISOString(),
             source: article.source?.name || "GNews",
-            image: article.image,
+            image: article.image || null, // Use the actual image from GNews API
             category: this.categorizeArticle(article.title + " " + (article.description || "")),
             tags: this.extractTags(article.title + " " + (article.description || "")),
             score: this.calculateTrendScore(article),
@@ -250,11 +173,15 @@ class GNewsService {
       throw new Error("No articles found in API response")
     } catch (error) {
       console.error("❌ [GNEWS SERVICE] API request failed:", error.message)
+      if (error.response) {
+        console.error("📊 [GNEWS SERVICE] API Error Status:", error.response.status)
+        console.error("📊 [GNEWS SERVICE] API Error Data:", error.response.data)
+      }
       throw error
     }
   }
 
-  async scrapeGoogleNews(limit = 10) {
+  async scrapeGoogleNews(limit = 50) {
     console.log("🕷️ [GNEWS SERVICE] Starting Google News scraping...")
 
     try {
@@ -264,6 +191,11 @@ class GNewsService {
         "startup funding",
         "tech innovation",
         "digital transformation",
+        "business news",
+        "health technology",
+        "science breakthrough",
+        "climate change",
+        "renewable energy",
       ]
 
       const allArticles = []
@@ -273,7 +205,8 @@ class GNewsService {
         console.log(`🔍 [GNEWS SERVICE] Scraping query ${i + 1}/${searchQueries.length}: "${query}"`)
 
         try {
-          const articles = await this.scrapeGoogleNewsQuery(query, Math.ceil(limit / searchQueries.length))
+          const articlesPerQuery = Math.ceil(limit / searchQueries.length)
+          const articles = await this.scrapeGoogleNewsQuery(query, articlesPerQuery)
           allArticles.push(...articles)
           console.log(`📊 [GNEWS SERVICE] Found ${articles.length} articles for "${query}"`)
 
@@ -293,7 +226,7 @@ class GNewsService {
 
       return {
         success: true,
-        articles: uniqueArticles,
+        trends: uniqueArticles,
         source: "google_news_scraping",
         timestamp: new Date().toISOString(),
       }
@@ -303,7 +236,7 @@ class GNewsService {
     }
   }
 
-  async scrapeGoogleNewsQuery(query, limit = 5) {
+  async scrapeGoogleNewsQuery(query, limit = 10) {
     try {
       const encodedQuery = encodeURIComponent(query)
       const url = `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`
@@ -319,7 +252,6 @@ class GNewsService {
       })
 
       console.log(`📡 [GNEWS SERVICE] RSS Response Status: ${response.status}`)
-      console.log(`📊 [GNEWS SERVICE] RSS Content Length: ${response.data.length}`)
 
       const $ = cheerio.load(response.data, { xmlMode: true })
       const articles = []
@@ -339,27 +271,14 @@ class GNewsService {
 
           articles.push({
             title: this.cleanTitle(title),
-            slug: this.generateSlug(title),
-            excerpt: this.cleanDescription(description),
-            content: this.generateInitialContent({ title, description }),
+            description: this.cleanDescription(description),
             url: link,
             publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-            source: {
-              name: source || "Google News",
-              url: link,
-            },
-            media: {
-              images: [],
-              videos: [],
-              tweets: [],
-            },
-            tags: this.extractTags(title + " " + description),
+            source: source || "Google News",
+            image: null, // RSS doesn't provide images
             category: this.categorizeArticle(title + " " + description),
-            seo: {
-              metaTitle: title.substring(0, 60),
-              metaDescription: description.substring(0, 160),
-              keywords: this.extractKeywords(title + " " + description),
-            },
+            tags: this.extractTags(title + " " + description),
+            score: this.calculateTrendScore({ title, description, publishedAt: pubDate }),
           })
         }
       })
@@ -372,79 +291,94 @@ class GNewsService {
     }
   }
 
-  getFallbackArticles(limit = 10) {
+  getFallbackArticles(limit = 50) {
     console.log("🎭 [GNEWS SERVICE] Using fallback articles...")
 
     const fallbackArticles = [
       {
         title: "AI Revolution: How Machine Learning is Transforming Industries",
-        excerpt:
+        description:
           "Artificial Intelligence continues to reshape various sectors, from healthcare to finance, creating new opportunities and challenges.",
         category: "Technology",
         tags: ["AI", "Machine Learning", "Technology", "Innovation"],
+        image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=400&fit=crop",
       },
       {
         title: "Sustainable Tech: Green Innovation Leading the Future",
-        excerpt:
+        description:
           "Environmental technology solutions are gaining momentum as companies prioritize sustainability and carbon neutrality.",
         category: "Environment",
         tags: ["Sustainability", "Green Tech", "Environment", "Innovation"],
+        image: "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=800&h=400&fit=crop",
       },
       {
         title: "Cybersecurity Trends: Protecting Digital Assets in 2024",
-        excerpt:
+        description:
           "As cyber threats evolve, organizations are adopting advanced security measures to protect sensitive data and systems.",
         category: "Security",
         tags: ["Cybersecurity", "Data Protection", "Technology", "Security"],
+        image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=400&fit=crop",
       },
       {
         title: "Remote Work Evolution: The Future of Digital Collaboration",
-        excerpt:
+        description:
           "Remote work technologies continue to evolve, enabling better collaboration and productivity across distributed teams.",
         category: "Business",
         tags: ["Remote Work", "Collaboration", "Technology", "Business"],
+        image: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800&h=400&fit=crop",
       },
       {
         title: "Blockchain Beyond Crypto: Real-World Applications",
-        excerpt:
+        description:
           "Blockchain technology finds new applications in supply chain, healthcare, and digital identity management.",
         category: "Technology",
         tags: ["Blockchain", "Technology", "Innovation", "Digital"],
+        image: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop",
+      },
+      {
+        title: "Healthcare Innovation: Digital Health Solutions",
+        description: "Digital health platforms are revolutionizing patient care and medical research worldwide.",
+        category: "Health",
+        tags: ["Healthcare", "Digital Health", "Innovation", "Medicine"],
+        image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=800&h=400&fit=crop",
+      },
+      {
+        title: "Space Technology: Commercial Space Race Heats Up",
+        description: "Private companies are driving innovation in space exploration and satellite technology.",
+        category: "Science",
+        tags: ["Space", "Technology", "Innovation", "Science"],
+        image: "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+      },
+      {
+        title: "Electric Vehicle Market: Charging Towards the Future",
+        description: "EV adoption accelerates as charging infrastructure expands and battery technology improves.",
+        category: "Technology",
+        tags: ["Electric Vehicles", "Technology", "Environment", "Innovation"],
+        image: "https://images.unsplash.com/photo-1593941707882-a5bac6861d75?w=800&h=400&fit=crop",
       },
     ]
 
-    const processedArticles = fallbackArticles.slice(0, limit).map((article, index) => ({
+    // Repeat articles to reach the limit
+    const repeatedArticles = []
+    while (repeatedArticles.length < limit) {
+      const remaining = limit - repeatedArticles.length
+      const articlesToAdd = fallbackArticles.slice(0, Math.min(remaining, fallbackArticles.length))
+      repeatedArticles.push(...articlesToAdd)
+    }
+
+    const processedArticles = repeatedArticles.map((article, index) => ({
       ...article,
-      slug: this.generateSlug(article.title),
-      content: this.generateInitialContent(article),
       url: `https://example.com/article-${index + 1}`,
       publishedAt: new Date(Date.now() - index * 3600000).toISOString(),
-      source: {
-        name: "TrendWise Fallback",
-        url: "https://trendwise.com",
-      },
-      media: {
-        images: [
-          {
-            url: `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(article.title)}`,
-            alt: article.title,
-          },
-        ],
-        videos: [],
-        tweets: [],
-      },
-      seo: {
-        metaTitle: article.title.substring(0, 60),
-        metaDescription: article.excerpt.substring(0, 160),
-        keywords: article.tags.join(", "),
-      },
+      source: "TrendWise Fallback",
+      score: Math.floor(Math.random() * 50) + 50,
     }))
 
     console.log(`🎭 [GNEWS SERVICE] Generated ${processedArticles.length} fallback articles`)
 
     return {
       success: false,
-      articles: processedArticles,
+      trends: processedArticles,
       source: "fallback_articles",
       timestamp: new Date().toISOString(),
       reason: "Using fallback articles due to API/scraping limitations",
@@ -466,85 +400,24 @@ class GNewsService {
       .substring(0, 300)
   }
 
-  generateInitialContent(article) {
-    const title = article.title || "Untitled Article"
-    const description = article.excerpt || article.description || "No description available"
+  calculateTrendScore(article) {
+    let score = 50 // Base score
 
-    return `# ${title}
-
-${description}
-
-This article covers the latest developments and insights on this trending topic. Stay tuned for more detailed analysis and updates.
-
-## Key Points
-
-- Breaking news and latest updates
-- Industry impact and analysis  
-- Expert opinions and insights
-- Future implications and trends
-
-*This content will be enhanced with AI-generated analysis and additional research.*`
-  }
-
-  estimateSearchVolume(article) {
-    const publishedDate = new Date(article.publishedAt)
+    // Recent articles get higher scores
+    const publishedDate = new Date(article.publishedAt || Date.now())
     const hoursAgo = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60)
 
-    // More recent articles get higher estimated search volume
-    if (hoursAgo < 1) return "10K-100K"
-    if (hoursAgo < 6) return "5K-50K"
-    if (hoursAgo < 24) return "1K-10K"
-    return "500-5K"
-  }
+    if (hoursAgo < 1) score += 30
+    else if (hoursAgo < 6) score += 20
+    else if (hoursAgo < 24) score += 10
 
-  extractTopics(title, description) {
-    const text = `${title} ${description}`.toLowerCase()
-    const commonTopics = [
-      "artificial intelligence",
-      "ai",
-      "machine learning",
-      "technology",
-      "innovation",
-      "climate change",
-      "sustainability",
-      "renewable energy",
-      "electric vehicles",
-      "cryptocurrency",
-      "bitcoin",
-      "blockchain",
-      "finance",
-      "economy",
-      "health",
-      "medicine",
-      "covid",
-      "vaccine",
-      "research",
-      "space",
-      "nasa",
-      "spacex",
-      "mars",
-      "satellite",
-      "politics",
-      "government",
-      "election",
-      "policy",
-      "business",
-      "startup",
-      "investment",
-      "market",
-      "entertainment",
-      "movie",
-      "music",
-      "celebrity",
-      "sports",
-      "football",
-      "basketball",
-      "olympics",
-    ]
+    // Articles with images get bonus
+    if (article.image) score += 10
 
-    const foundTopics = commonTopics.filter((topic) => text.includes(topic)).slice(0, 5)
+    // Longer descriptions get bonus
+    if (article.description && article.description.length > 100) score += 5
 
-    return foundTopics.length > 0 ? foundTopics : ["trending", "news", "current events"]
+    return Math.min(100, score)
   }
 
   async testConnection() {
@@ -555,7 +428,7 @@ This article covers the latest developments and insights on this trending topic.
         console.log("🔑 [GNEWS SERVICE] Testing GNews API...")
         const response = await axios.get(`${this.baseURL}/top-headlines`, {
           params: {
-            token: this.apiKey,
+            apikey: this.apiKey,
             lang: "en",
             max: 1,
           },
@@ -581,26 +454,6 @@ This article covers the latest developments and insights on this trending topic.
       console.error("❌ [GNEWS SERVICE] Connection test failed:", error.message)
       return { api: false, scraping: false, error: error.message }
     }
-  }
-
-  calculateTrendScore(article) {
-    let score = 50 // Base score
-
-    // Recent articles get higher scores
-    const publishedDate = new Date(article.publishedAt)
-    const hoursAgo = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60)
-
-    if (hoursAgo < 1) score += 30
-    else if (hoursAgo < 6) score += 20
-    else if (hoursAgo < 24) score += 10
-
-    // Articles with images get bonus
-    if (article.image) score += 10
-
-    // Longer descriptions get bonus
-    if (article.description && article.description.length > 100) score += 5
-
-    return Math.min(100, score)
   }
 }
 

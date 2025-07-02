@@ -46,28 +46,117 @@ class GroqService {
     }
   }
 
-  async generateTweetContent(prompt) {
+  async generateTweetContent(query, limit = 5) {
     console.log("🐦 [GROQ SERVICE] Generating tweet content...")
-    console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
+    console.log(`📊 [GROQ SERVICE] Query: ${query}`)
 
     if (!this.apiKey) {
-      console.log("⚠️ [GROQ SERVICE] No API key, returning null for tweets")
-      return null
+      console.log("⚠️ [GROQ SERVICE] No API key, returning mock tweets")
+      return this.generateMockTweets(query, limit)
     }
 
     try {
+      const prompt = `Generate ${limit} realistic Twitter-style tweets about "${query}". 
+
+Requirements:
+- Each tweet should be under 280 characters
+- Use realistic Twitter usernames and handles
+- Include relevant hashtags and emojis
+- Make them sound like real people discussing the topic
+- Vary the tone (excited, analytical, skeptical, informative)
+- Include different perspectives
+
+Respond with ONLY valid JSON in this format:
+{
+  "tweets": [
+    {
+      "username": "TechReporter",
+      "handle": "@techreporter",
+      "text": "Breaking: [tweet content with emojis and hashtags]",
+      "engagement": {
+        "likes": 150,
+        "retweets": 45,
+        "replies": 23
+      }
+    }
+  ]
+}`
+
       const response = await this.makeGroqRequest(prompt, "json")
 
-      if (response) {
+      if (response && response.tweets) {
         console.log("✅ [GROQ SERVICE] Tweet content generated successfully")
-        return response
+        return response.tweets.map((tweet, index) => ({
+          username: tweet.username || `User${index + 1}`,
+          handle: tweet.handle || `@user${index + 1}`,
+          text: tweet.text || `Interesting developments in ${query}! 🚀`,
+          link: this.createTwitterSearchUrl(query),
+          timestamp: new Date(Date.now() - index * 3600000).toISOString(),
+          engagement: tweet.engagement || {
+            likes: Math.floor(Math.random() * 500) + 50,
+            retweets: Math.floor(Math.random() * 100) + 10,
+            replies: Math.floor(Math.random() * 50) + 5,
+          },
+        }))
       }
 
-      return null
+      return this.generateMockTweets(query, limit)
     } catch (error) {
       console.error("❌ [GROQ SERVICE] Tweet generation failed:", error.message)
-      return null
+      return this.generateMockTweets(query, limit)
     }
+  }
+
+  generateMockTweets(query, limit = 5) {
+    const mockTweets = [
+      {
+        username: "TechNewsDaily",
+        handle: "@technewsdaily",
+        text: `🚨 BREAKING: ${query} - This could be a game changer! What are your thoughts? #TechNews #Innovation #Breaking`,
+        link: this.createTwitterSearchUrl(query),
+        timestamp: new Date().toISOString(),
+        engagement: { likes: 342, retweets: 89, replies: 45 },
+      },
+      {
+        username: "IndustryAnalyst",
+        handle: "@industryanalyst",
+        text: `Deep dive analysis: ${query} represents a significant shift in market dynamics. Thread below 🧵 #Analysis #MarketTrends`,
+        link: this.createTwitterSearchUrl(query),
+        timestamp: new Date(Date.now() - 3600000).toISOString(),
+        engagement: { likes: 156, retweets: 34, replies: 28 },
+      },
+      {
+        username: "TechSkeptic",
+        handle: "@techskeptic",
+        text: `Hmm, not sure about ${query}... We've seen similar promises before. Prove me wrong! 🤔 #TechSkepticism #ShowMeTheData`,
+        link: this.createTwitterSearchUrl(query),
+        timestamp: new Date(Date.now() - 7200000).toISOString(),
+        engagement: { likes: 89, retweets: 12, replies: 67 },
+      },
+      {
+        username: "FutureTechFan",
+        handle: "@futuretechfan",
+        text: `OMG YES! 🎉 ${query} is exactly what we needed! The future is here and I'm here for it! #FutureTech #Excited #Innovation`,
+        link: this.createTwitterSearchUrl(query),
+        timestamp: new Date(Date.now() - 10800000).toISOString(),
+        engagement: { likes: 234, retweets: 67, replies: 19 },
+      },
+      {
+        username: "DataDrivenDev",
+        handle: "@datadrivendev",
+        text: `Interesting data points around ${query}. Looking at the metrics, this could impact adoption rates significantly 📊 #Data #Metrics`,
+        link: this.createTwitterSearchUrl(query),
+        timestamp: new Date(Date.now() - 14400000).toISOString(),
+        engagement: { likes: 178, retweets: 23, replies: 31 },
+      },
+    ]
+
+    return mockTweets.slice(0, limit)
+  }
+
+  createTwitterSearchUrl(query) {
+    const encodedQuery = encodeURIComponent(query)
+    return `https://twitter.com/search?q=${encodedQuery}&src=typed_query&f=live`
   }
 
   async makeGroqRequest(prompt, responseFormat = "text") {
@@ -83,7 +172,7 @@ class GroqService {
           content: prompt,
         },
       ],
-      max_tokens: responseFormat === "json" ? 1000 : 4000, // Increased max tokens for better content
+      max_tokens: responseFormat === "json" ? 1000 : 4000,
       temperature: 0.7,
       top_p: 0.9,
     }
@@ -95,12 +184,10 @@ class GroqService {
     console.log(
       `🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`,
     )
-    console.log(`🔑 [GROQ SERVICE] API Key status: ${this.apiKey ? "Present (valid)" : "Missing"}`)
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         console.log(`🔄 [GROQ SERVICE] Attempt ${attempt}/${this.maxRetries}`)
-        console.log(`⏳ [GROQ SERVICE] Sending request to Groq API...`)
 
         const startTime = Date.now()
         const response = await axios.post(`${this.baseUrl}/chat/completions`, requestData, {
@@ -115,25 +202,18 @@ class GroqService {
 
         console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
         console.log(`⏱️ [GROQ SERVICE] Request duration: ${duration}ms`)
-        console.log(`📊 [GROQ SERVICE] Usage: ${JSON.stringify(response.data.usage || {})}`)
-        console.log(
-          `📊 [GROQ SERVICE] Tokens: Input=${response.data.usage?.prompt_tokens || "unknown"}, Output=${response.data.usage?.completion_tokens || "unknown"}, Total=${response.data.usage?.total_tokens || "unknown"}`,
-        )
 
         if (response.data && response.data.choices && response.data.choices[0]) {
           const content = response.data.choices[0].message.content
           console.log(`📄 [GROQ SERVICE] Response content length: ${content.length} characters`)
-          console.log(`📄 [GROQ SERVICE] Response preview: ${content.substring(0, 100)}...`)
 
           if (responseFormat === "json") {
             try {
               const parsed = JSON.parse(content)
               console.log("✅ [GROQ SERVICE] JSON response parsed successfully")
-              console.log(`📊 [GROQ SERVICE] JSON keys: ${Object.keys(parsed).join(", ")}`)
               return parsed
             } catch (parseError) {
               console.error("❌ [GROQ SERVICE] JSON parsing failed:", parseError.message)
-              console.error(`📄 [GROQ SERVICE] Invalid JSON content: ${content.substring(0, 200)}...`)
               throw new Error("Invalid JSON response from API")
             }
           } else {
@@ -145,29 +225,10 @@ class GroqService {
       } catch (error) {
         console.error(`❌ [GROQ SERVICE] Attempt ${attempt} failed:`, error.message)
 
-        if (error.response) {
-          console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
-          console.error(`📊 [GROQ SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
-
-          // Don't retry on certain errors
-          if (error.response.status === 401 || error.response.status === 403) {
-            console.error(
-              `🔑 [GROQ SERVICE] Authentication error: ${error.response.status} - ${error.response.statusText}`,
-            )
-            throw new Error("Authentication failed - check API key")
-          }
-        } else if (error.request) {
-          console.error(`📡 [GROQ SERVICE] Network error: No response received`)
-          console.error(`📡 [GROQ SERVICE] Request details: ${JSON.stringify(error.request._currentUrl || {})}`)
-        } else {
-          console.error(`⚠️ [GROQ SERVICE] Error before request: ${error.message}`)
-        }
-
         if (attempt === this.maxRetries) {
           throw error
         }
 
-        // Wait before retry
         const waitTime = attempt * 2000
         console.log(`⏳ [GROQ SERVICE] Waiting ${waitTime}ms before retry...`)
         await new Promise((resolve) => setTimeout(resolve, waitTime))
@@ -189,23 +250,40 @@ Article Details:
 - Brief Description: ${excerpt}
 
 Requirements:
-1. Write 1000-1500 words of engaging, informative content
-2. Use proper markdown formatting with H2 and H3 headings
-3. Include an introduction, main content sections, and conclusion
-4. Make it SEO-friendly with natural keyword integration
-5. Write in a professional, engaging tone
-6. Include relevant insights and analysis
-7. Add practical takeaways for readers
-8. Include at least 5 subheadings for better structure
+1. Write 1200-1800 words of engaging, informative content
+2. Use proper HTML formatting with semantic tags
+3. Structure with <h2> and <h3> headings for sections
+4. Use <p> tags for paragraphs
+5. Include <ul> or <ol> lists where appropriate
+6. Use <strong> and <em> for emphasis
+7. Make it SEO-friendly with natural keyword integration
+8. Write in a professional, engaging tone
+9. Include relevant insights and analysis
+10. Add practical takeaways for readers
 
-Structure the article with:
-- Compelling introduction
-- 4-5 main sections with H2 headings
-- Subsections with H3 headings where appropriate
-- Conclusion with key takeaways
-- Use bullet points and numbered lists where relevant
+HTML Structure Requirements:
+- Start with an engaging introduction paragraph
+- Use <h2> for main sections (4-5 sections)
+- Use <h3> for subsections where appropriate
+- Use <p> tags for all paragraphs
+- Include bullet points using <ul><li> tags
+- Use <strong> for important terms
+- End with a conclusion paragraph
 
-Focus on providing value to readers while maintaining readability and SEO best practices.`
+Example structure:
+<p>Introduction paragraph...</p>
+
+<h2>Main Section Title</h2>
+<p>Section content...</p>
+
+<h3>Subsection Title</h3>
+<p>Subsection content...</p>
+<ul>
+<li>Key point 1</li>
+<li>Key point 2</li>
+</ul>
+
+Focus on providing value to readers while maintaining readability and SEO best practices. Return ONLY the HTML content without any markdown or additional formatting.`
   }
 
   generateFallbackContent(article) {
@@ -214,50 +292,46 @@ Focus on providing value to readers while maintaining readability and SEO best p
     const title = article.title || "Trending Topic"
     const excerpt = article.excerpt || article.description || "Latest developments in this trending topic"
     const category = article.category || "Technology"
-    const tags = Array.isArray(article.tags) ? article.tags : ["technology", "news"]
 
-    const content = `# ${title}
+    const content = `<p>${excerpt}</p>
 
-${excerpt}
+<h2>Overview</h2>
+<p>This trending topic has been gaining significant attention across various platforms and communities. Our analysis reveals several key insights and developments that are worth exploring in detail.</p>
 
-## Overview
+<h2>Key Developments</h2>
 
-This trending topic has been gaining significant attention across various platforms and communities. Our analysis reveals several key insights and developments that are worth exploring in detail.
+<h3>Current Situation</h3>
+<p>The current landscape shows interesting patterns and trends that indicate significant changes in the industry. These developments are particularly noteworthy because they represent a shift in how we approach and understand this domain.</p>
 
-## Key Developments
+<h3>Market Impact</h3>
+<p>The implications of these changes extend beyond immediate effects, potentially reshaping entire market segments and influencing future strategies across multiple industries.</p>
 
-### Current Situation
-The current landscape shows interesting patterns and trends that indicate significant changes in the industry. These developments are particularly noteworthy because they represent a shift in how we approach and understand this domain.
+<h3>Expert Perspectives</h3>
+<p>Industry experts have shared valuable insights about these developments, highlighting both opportunities and challenges that lie ahead.</p>
 
-### Market Impact
-The implications of these changes extend beyond immediate effects, potentially reshaping entire market segments and influencing future strategies across multiple industries.
+<h2>Analysis and Insights</h2>
 
-### Expert Perspectives
-Industry experts have shared valuable insights about these developments, highlighting both opportunities and challenges that lie ahead.
+<h3>Technical Aspects</h3>
+<p>From a technical standpoint, these developments showcase innovative approaches and methodologies that could become standard practices in the near future.</p>
 
-## Analysis and Insights
+<h3>Business Implications</h3>
+<p>Organizations are closely monitoring these trends to understand how they might impact their operations, strategies, and competitive positioning.</p>
 
-### Technical Aspects
-From a technical standpoint, these developments showcase innovative approaches and methodologies that could become standard practices in the near future.
+<h3>Future Outlook</h3>
+<p>Looking ahead, several factors will likely influence how these trends evolve and what impact they will have on the broader ecosystem.</p>
 
-### Business Implications
-Organizations are closely monitoring these trends to understand how they might impact their operations, strategies, and competitive positioning.
+<h2>Key Takeaways</h2>
+<ul>
+<li><strong>Innovation Drive:</strong> These developments represent significant innovation in the field</li>
+<li><strong>Market Opportunity:</strong> New opportunities are emerging for businesses and individuals</li>
+<li><strong>Strategic Importance:</strong> Organizations should consider these trends in their strategic planning</li>
+<li><strong>Continuous Evolution:</strong> The landscape continues to evolve rapidly, requiring ongoing attention</li>
+</ul>
 
-### Future Outlook
-Looking ahead, several factors will likely influence how these trends evolve and what impact they will have on the broader ecosystem.
+<h2>Conclusion</h2>
+<p>As we continue to monitor these developments, it's clear that staying informed and adaptable will be crucial for success. The trends we're seeing today are likely to shape the future of this domain significantly.</p>
 
-## Key Takeaways
-
-- **Innovation Drive**: These developments represent significant innovation in the field
-- **Market Opportunity**: New opportunities are emerging for businesses and individuals
-- **Strategic Importance**: Organizations should consider these trends in their strategic planning
-- **Continuous Evolution**: The landscape continues to evolve rapidly, requiring ongoing attention
-
-## Conclusion
-
-As we continue to monitor these developments, it's clear that staying informed and adaptable will be crucial for success. The trends we're seeing today are likely to shape the future of this domain significantly.
-
-*Stay tuned for more updates and analysis on this evolving topic.*`
+<p><em>Stay tuned for more updates and analysis on this evolving topic.</em></p>`
 
     console.log(`✅ [GROQ SERVICE] Generated ${content.length} characters of fallback content`)
 
@@ -340,28 +414,12 @@ As we continue to monitor these developments, it's clear that staying informed a
     }
   }
 
-  async healthCheck() {
-    try {
-      const result = await this.testConnection()
-      return result.success
-    } catch (error) {
-      return false
-    }
-  }
-
-  getStatus() {
-    return {
-      apiKey: !!this.apiKey,
-      model: this.model,
-      baseUrl: this.baseUrl,
-      timeout: this.requestTimeout,
-      maxRetries: this.maxRetries,
-    }
-  }
-
   generateExcerpt(content) {
-    // Remove markdown and get first 160 characters
-    const plainText = content.replace(/[#*`]/g, "").replace(/\n+/g, " ").trim()
+    // Remove HTML tags and get first 160 characters
+    const plainText = content
+      .replace(/<[^>]*>/g, "")
+      .replace(/\n+/g, " ")
+      .trim()
     return plainText.length > 160 ? plainText.substring(0, 157) + "..." : plainText
   }
 

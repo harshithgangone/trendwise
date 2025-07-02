@@ -1,101 +1,84 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { motion } from "framer-motion"
-import Image from "next/image"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
-import { Badge } from "@/components/ui/badge"
-import { Calendar, Clock, Share2, Bookmark, Heart } from "lucide-react"
-import { formatDateTime } from "@/lib/utils"
+import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { TweetsSection } from "@/components/tweets-section"
-import { useToast } from "@/hooks/use-toast"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Heart, Bookmark, Share2, Clock, Calendar, Eye, User } from "lucide-react"
+import { formatDateTime } from "@/lib/utils"
 import { useUserPreferences } from "@/hooks/use-user-preferences"
-import type { Tweet } from "@/components/tweets-section"
+import { toast } from "@/hooks/use-toast"
 
 interface Article {
   _id: string
   title: string
   content: string
+  excerpt: string
   thumbnail: string
-  createdAt: string
   tags: string[]
+  category: string
   readTime: number
-  author?: string
-  trendData?: {
-    sourceName?: string
-    sourceUrl?: string
-    publishedAt?: string
+  views: number
+  likes: number
+  saves: number
+  createdAt: string
+  source: {
+    name: string
+    url: string
   }
-  media?: {
-    images?: string[]
-    videos?: string[]
-    tweets?: Tweet[]
-  }
-  twitterSearchUrl?: string
-  saves?: number
-  likes?: number
 }
 
 interface ArticleContentProps {
   article: Article
 }
 
-export function ArticleContent({ article: initialArticle }: ArticleContentProps) {
+export function ArticleContent({ article }: ArticleContentProps) {
   const { data: session } = useSession()
-  const router = useRouter()
-  const { toast } = useToast()
   const { saveArticle, likeArticle, addToRecentlyViewed, isArticleSaved, isArticleLiked } = useUserPreferences()
-
-  const [article, setArticle] = useState(initialArticle)
-  const [isSaved, setIsSaved] = useState(false)
-  const [isLiked, setIsLiked] = useState(false)
+  const [localLikes, setLocalLikes] = useState(article.likes || 0)
+  const [localSaves, setLocalSaves] = useState(article.saves || 0)
   const [isLiking, setIsLiking] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  // Update local state when preferences change
   useEffect(() => {
-    setIsSaved(isArticleSaved(article._id))
-    setIsLiked(isArticleLiked(article._id))
-  }, [article._id, isArticleSaved, isArticleLiked])
-
-  // Add to recently viewed when component mounts
-  useEffect(() => {
-    if (session?.user) {
+    // Add to recently viewed when component mounts
+    if (article._id) {
       addToRecentlyViewed(article._id)
     }
-  }, [article._id, session?.user, addToRecentlyViewed])
+  }, [article._id, addToRecentlyViewed])
 
-  // Refetch article from backend
-  const refetchArticle = async () => {
-    try {
-      const response = await fetch(`/api/articles/by-id/${article._id}`)
-      if (response.ok) {
-        const updated = await response.json()
-        setArticle(updated)
-      }
-    } catch (error) {
-      console.error("Failed to refetch article:", error)
+  const handleLike = async () => {
+    if (!session) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to like articles.",
+        variant: "destructive",
+      })
+      return
     }
-  }
 
-  const handleShare = async () => {
+    if (isLiking) return
+
+    setIsLiking(true)
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: article.title,
-          url: window.location.href,
-        })
-      } else {
-        await navigator.clipboard.writeText(window.location.href)
-        toast({
-          title: "Link copied!",
-          description: "Article link has been copied to your clipboard.",
-        })
-      }
+      const newLikedState = await likeArticle(article._id)
+      setLocalLikes((prev) => (newLikedState ? prev + 1 : prev - 1))
+
+      toast({
+        title: newLikedState ? "Article liked!" : "Like removed",
+        description: newLikedState ? "Added to your liked articles." : "Removed from your liked articles.",
+      })
     } catch (error) {
-      console.error("Share failed:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update like. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLiking(false)
     }
   }
 
@@ -106,23 +89,24 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
         description: "Please sign in to save articles.",
         variant: "destructive",
       })
-      router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)
       return
     }
+
+    if (isSaving) return
 
     setIsSaving(true)
     try {
       const newSavedState = await saveArticle(article._id)
-      setIsSaved(newSavedState)
-      await refetchArticle()
+      setLocalSaves((prev) => (newSavedState ? prev + 1 : prev - 1))
+
       toast({
-        title: newSavedState ? "Article saved!" : "Article unsaved",
-        description: newSavedState ? "Article added to your saved list." : "Article removed from your saved list.",
+        title: newSavedState ? "Article saved!" : "Save removed",
+        description: newSavedState ? "Added to your saved articles." : "Removed from your saved articles.",
       })
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to update save status.",
+        description: "Failed to update save. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -130,225 +114,165 @@ export function ArticleContent({ article: initialArticle }: ArticleContentProps)
     }
   }
 
-  const handleLike = async () => {
-    if (!session) {
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: article.title,
+          text: article.excerpt,
+          url: window.location.href,
+        })
+      } catch (error) {
+        // User cancelled sharing
+      }
+    } else {
+      // Fallback to copying URL
+      await navigator.clipboard.writeText(window.location.href)
       toast({
-        title: "Sign in required",
-        description: "Please sign in to like articles.",
-        variant: "destructive",
+        title: "Link copied!",
+        description: "Article link has been copied to your clipboard.",
       })
-      router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)
-      return
-    }
-
-    setIsLiking(true)
-    try {
-      const newLikedState = await likeArticle(article._id)
-      setIsLiked(newLikedState)
-      await refetchArticle()
-      toast({
-        title: newLikedState ? "Article liked!" : "Like removed",
-        description: newLikedState ? "Thanks for liking this article!" : "You unliked this article.",
-      })
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update like status.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLiking(false)
     }
   }
 
+  const isLiked = session ? isArticleLiked(article._id) : false
+  const isSaved = session ? isArticleSaved(article._id) : false
+
   return (
-    <article className="max-w-4xl mx-auto px-4 py-12">
-      {/* Header */}
-      <motion.header
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-        className="mb-8"
-      >
+    <motion.article
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="max-w-4xl mx-auto"
+    >
+      {/* Article Header */}
+      <header className="mb-8">
         <div className="flex flex-wrap gap-2 mb-4">
-          {article.tags.map((tag) => (
-            <Badge key={tag} variant="secondary">
+          <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+            {article.category}
+          </Badge>
+          {article.tags.slice(0, 3).map((tag) => (
+            <Badge key={tag} variant="outline">
               {tag}
             </Badge>
           ))}
         </div>
 
-        <h1 className="text-4xl md:text-5xl font-bold mb-6 leading-tight">{article.title}</h1>
+        <h1 className="text-4xl md:text-5xl font-bold mb-6 leading-tight text-gray-900">{article.title}</h1>
 
-        <div className="flex items-center justify-between flex-wrap gap-4 text-gray-600 mb-6">
-          <div className="flex items-center space-x-6">
-            <div className="flex items-center">
-              <Calendar className="h-4 w-4 mr-2" />
-              {formatDateTime(article.createdAt)}
+        <p className="text-xl text-gray-600 mb-6 leading-relaxed">{article.excerpt}</p>
+
+        {/* Article Meta */}
+        <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500 mb-6">
+          <div className="flex items-center">
+            <User className="h-4 w-4 mr-2" />
+            <span>{article.source?.name || "TrendWise AI"}</span>
+          </div>
+          <div className="flex items-center">
+            <Calendar className="h-4 w-4 mr-2" />
+            <span>{formatDateTime(article.createdAt)}</span>
+          </div>
+          <div className="flex items-center">
+            <Clock className="h-4 w-4 mr-2" />
+            <span>{article.readTime} min read</span>
+          </div>
+          <div className="flex items-center">
+            <Eye className="h-4 w-4 mr-2" />
+            <span>{article.views?.toLocaleString() || 0} views</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-4 mb-8">
+          <Button
+            variant={isLiked ? "default" : "outline"}
+            size="sm"
+            onClick={handleLike}
+            disabled={isLiking}
+            className={isLiked ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+          >
+            <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
+            {localLikes.toLocaleString()}
+          </Button>
+
+          <Button
+            variant={isSaved ? "default" : "outline"}
+            size="sm"
+            onClick={handleSave}
+            disabled={isSaving}
+            className={isSaved ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+          >
+            <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
+            {localSaves.toLocaleString()}
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={handleShare}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </Button>
+        </div>
+
+        <Separator />
+      </header>
+
+      {/* Article Content */}
+      <div
+        className="prose prose-lg max-w-none mb-12"
+        dangerouslySetInnerHTML={{ __html: article.content }}
+        style={{
+          lineHeight: "1.8",
+          fontSize: "18px",
+        }}
+      />
+
+      {/* Article Footer */}
+      <footer className="border-t pt-8">
+        <div className="flex flex-wrap gap-2 mb-6">
+          <span className="text-sm font-medium text-gray-700 mr-2">Tags:</span>
+          {article.tags.map((tag) => (
+            <Badge key={tag} variant="secondary" className="text-xs">
+              {tag}
+            </Badge>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Avatar className="h-10 w-10">
+              <AvatarImage src="/logo.png" alt="TrendWise AI" />
+              <AvatarFallback>TW</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-medium text-gray-900">{article.source?.name || "TrendWise AI"}</p>
+              <p className="text-sm text-gray-500">AI-powered content generation</p>
             </div>
-            <div className="flex items-center">
-              <Clock className="h-4 w-4 mr-2" />
-              {article.readTime} min read
-            </div>
-            {article.author && (
-              <div className="flex items-center">
-                <span className="text-sm">By {article.author}</span>
-              </div>
-            )}
           </div>
 
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handleShare}>
-              <Share2 className="h-4 w-4 mr-2" />
-              Share
-            </Button>
-
-            {/* Combined Save Button with Counter */}
+          <div className="flex items-center gap-4">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSave}
-              disabled={isSaving}
-              className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
-            >
-              <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
-              {isSaved ? "Saved" : "Save"} ({article.saves ?? 0})
-            </Button>
-
-            {/* Combined Like Button with Counter */}
-            <Button
-              variant="outline"
+              variant={isLiked ? "default" : "outline"}
               size="sm"
               onClick={handleLike}
               disabled={isLiking}
-              className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
+              className={isLiked ? "bg-red-500 hover:bg-red-600 text-white" : ""}
             >
               <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
-              {isLiked ? "Liked" : "Like"} ({article.likes ?? 0})
+              Like
+            </Button>
+
+            <Button
+              variant={isSaved ? "default" : "outline"}
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+              className={isSaved ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+            >
+              <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
+              Save
             </Button>
           </div>
         </div>
-
-        {/* Source Attribution */}
-        {article.trendData?.sourceName && (
-          <div className="bg-gray-50 border-l-4 border-blue-500 p-4 mb-6">
-            <p className="text-sm text-gray-600">
-              <strong>Source:</strong>{" "}
-              {article.trendData.sourceUrl ? (
-                <a
-                  href={article.trendData.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 underline"
-                >
-                  {article.trendData.sourceName}
-                </a>
-              ) : (
-                article.trendData.sourceName
-              )}
-              {article.trendData.publishedAt && (
-                <span className="ml-2">• Published {new Date(article.trendData.publishedAt).toLocaleDateString()}</span>
-              )}
-            </p>
-          </div>
-        )}
-      </motion.header>
-
-      {/* Featured Image */}
-      {article.thumbnail && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="mb-8 rounded-xl overflow-hidden"
-        >
-          <Image
-            src={article.thumbnail || "/placeholder.svg"}
-            alt={article.title}
-            width={800}
-            height={400}
-            className="w-full h-auto"
-            priority
-          />
-        </motion.div>
-      )}
-
-      {/* Content */}
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.4 }}
-        className="prose prose-lg max-w-none mb-12"
-        dangerouslySetInnerHTML={{ __html: article.content }}
-      />
-
-      {/* Media Gallery */}
-      {article.media && (article.media.images || article.media.videos) && (
-        <motion.section
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6 }}
-          className="mt-12"
-        >
-          <h3 className="text-2xl font-bold mb-6">Related Media</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {article.media.images?.slice(0, 4).map((image, index) => (
-              <div key={index} className="rounded-lg overflow-hidden">
-                <Image
-                  src={image || "/placeholder.svg"}
-                  alt={`Related image ${index + 1}`}
-                  width={400}
-                  height={300}
-                  className="w-full h-auto"
-                />
-              </div>
-            ))}
-          </div>
-        </motion.section>
-      )}
-
-      {/* Tweets Section */}
-      {article.media?.tweets && article.media.tweets.length > 0 && (
-        <TweetsSection
-          tweets={article.media.tweets}
-          title="Social Media Buzz"
-          query={article.title}
-          searchUrl={article.twitterSearchUrl}
-        />
-      )}
-
-      {/* Article Actions */}
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, delay: 0.8 }}
-        className="mt-12 pt-8 border-t border-gray-200"
-      >
-        <div className="flex items-center justify-center space-x-4">
-          <Button variant="outline" onClick={handleShare}>
-            <Share2 className="h-4 w-4 mr-2" />
-            Share Article
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleSave}
-            disabled={isSaving}
-            className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
-          >
-            <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
-            {isSaved ? "Saved" : "Save for Later"} ({article.saves ?? 0})
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleLike}
-            disabled={isLiking}
-            className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
-          >
-            <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
-            {isLiked ? "Liked" : "Like Article"} ({article.likes ?? 0})
-          </Button>
-        </div>
-      </motion.div>
-    </article>
+      </footer>
+    </motion.article>
   )
 }
