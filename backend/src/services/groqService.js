@@ -7,7 +7,7 @@ const groq = new Groq({
 
 class GroqService {
   constructor() {
-    this.apiKey = process.env.GROQ_API_KEY
+    this.apiKey = "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"
     this.baseUrl = "https://api.groq.com/openai/v1"
     this.model = "llama-3.1-8b-instant" // Updated model
     this.requestTimeout = 30000 // 30 seconds
