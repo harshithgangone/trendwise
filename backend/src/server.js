@@ -1,29 +1,30 @@
 const fastify = require("fastify")({
-  logger: {
-    level: "info",
-    transport: {
-      target: "pino-pretty",
-      options: {
-        colorize: true,
-        translateTime: "HH:MM:ss Z",
-        ignore: "pid,hostname",
-      },
-    },
-  },
+  logger:
+    process.env.NODE_ENV === "production"
+      ? true
+      : {
+          level: "info",
+          transport: {
+            target: "pino-pretty",
+            options: {
+              colorize: true,
+              translateTime: "HH:MM:ss Z",
+              ignore: "pid,hostname",
+            },
+          },
+        },
 })
 const mongoose = require("mongoose")
 require("dotenv").config()
 
 // Import services
 const trendBot = require("./services/trendBot")
-const groqService = require("./services/groqService")
 
 // Import routes
 const articlesRoutes = require("./routes/articles")
 const adminRoutes = require("./routes/admin")
 const commentsRoutes = require("./routes/comments")
 const trendsRoutes = require("./routes/trends")
-const authRoutes = require("./routes/auth")
 
 // Register plugins
 fastify.register(require("@fastify/cors"), {
@@ -70,7 +71,6 @@ fastify.register(articlesRoutes, { prefix: "/api/articles" })
 fastify.register(adminRoutes, { prefix: "/api/admin" })
 fastify.register(commentsRoutes, { prefix: "/api/comments" })
 fastify.register(trendsRoutes, { prefix: "/api/trends" })
-fastify.register(authRoutes, { prefix: "/api/auth" })
 console.log("✅ [ROUTES] All routes registered")
 
 // Enhanced health check endpoint
@@ -87,7 +87,6 @@ fastify.get("/health", async (request, reply) => {
     },
     services: {
       trendBot: trendBot.getStatus(),
-      groq: groqService.getStatus(),
     },
     environment: {
       nodeEnv: process.env.NODE_ENV || "development",
@@ -120,7 +119,6 @@ fastify.get("/api/health/detailed", async (request, reply) => {
     },
     services: {
       trendBot: trendBot.getStatus(),
-      groq: groqService.getStatus(),
     },
     environment: {
       nodeEnv: process.env.NODE_ENV || "development",
@@ -195,11 +193,6 @@ const start = async () => {
     // Connect to database first
     await connectDatabase()
 
-    // Test Groq service
-    console.log("🤖 [SERVER] Testing Groq service...")
-    const groqHealthy = await groqService.healthCheck()
-    console.log(`🤖 [SERVER] Groq service: ${groqHealthy ? "Healthy ✅" : "Unhealthy ❌"}`)
-
     // Start the server
     const port = process.env.PORT || 3001
     const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "localhost"
@@ -225,7 +218,6 @@ const start = async () => {
     console.log("   GET  /api/articles")
     console.log("   GET  /api/articles/trending")
     console.log("   GET  /api/articles/categories")
-    console.log("   POST /api/auth/google-signin")
   } catch (error) {
     console.error("❌ [SERVER] Failed to start:", error)
     process.exit(1)

@@ -1,101 +1,78 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+// Mock trending articles data
 const mockTrendingArticles = [
   {
     _id: "trending-1",
-    title: "AI Breakthrough: ChatGPT-5 Announced with Revolutionary Features",
-    slug: "ai-breakthrough-chatgpt-5-announced-revolutionary-features",
+    title: "AI Revolution: How Machine Learning is Transforming Industries",
+    slug: "ai-revolution-machine-learning-transforming-industries",
     excerpt:
-      "OpenAI announces ChatGPT-5 with unprecedented capabilities in reasoning, multimodal understanding, and real-time learning.",
+      "Discover how artificial intelligence and machine learning are revolutionizing everything from healthcare to finance, creating unprecedented opportunities and challenges.",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date().toISOString(),
-    tags: ["AI", "ChatGPT", "Technology", "OpenAI"],
+    tags: ["AI", "Technology", "Innovation", "Future"],
     category: "Technology",
-    readTime: 4,
-    views: 5420,
-    likes: 342,
-    saves: 156,
+    readTime: 6,
+    views: 2500,
+    likes: 189,
+    saves: 67,
     featured: true,
-    trending: true,
-    trendingScore: 95,
+    author: "TrendBot AI",
+    trendData: {
+      trendScore: 95,
+      searchVolume: "High",
+      source: "Google Trends",
+    },
   },
   {
     _id: "trending-2",
-    title: "Climate Summit 2024: Historic Agreement on Carbon Neutrality",
-    slug: "climate-summit-2024-historic-agreement-carbon-neutrality",
+    title: "Sustainable Energy Breakthrough: Solar Power Efficiency Reaches New Heights",
+    slug: "sustainable-energy-breakthrough-solar-power-efficiency",
     excerpt:
-      "World leaders reach unprecedented agreement on accelerated carbon neutrality targets and funding mechanisms.",
+      "Scientists achieve record-breaking solar panel efficiency, bringing us closer to a fully renewable energy future with game-changing implications.",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date(Date.now() - 3600000).toISOString(),
-    tags: ["Climate", "Environment", "Politics", "Sustainability"],
+    tags: ["Energy", "Sustainability", "Innovation", "Environment"],
     category: "Environment",
-    readTime: 6,
-    views: 3890,
-    likes: 267,
+    readTime: 5,
+    views: 1800,
+    likes: 142,
     saves: 89,
     featured: true,
-    trending: true,
-    trendingScore: 88,
+    author: "TrendBot AI",
+    trendData: {
+      trendScore: 88,
+      searchVolume: "High",
+      source: "News Analysis",
+    },
   },
   {
     _id: "trending-3",
-    title: "Tesla's New Battery Technology Promises 1000-Mile Range",
-    slug: "tesla-new-battery-technology-1000-mile-range",
+    title: "Remote Work Evolution: The Future of Digital Collaboration",
+    slug: "remote-work-evolution-future-digital-collaboration",
     excerpt:
-      "Tesla unveils revolutionary solid-state battery technology that could transform electric vehicle adoption worldwide.",
+      "As remote work becomes permanent, new technologies and methodologies are reshaping how teams collaborate and companies operate globally.",
     thumbnail: "/placeholder.svg?height=400&width=600",
     createdAt: new Date(Date.now() - 7200000).toISOString(),
-    tags: ["Tesla", "Electric Vehicles", "Battery", "Technology"],
-    category: "Technology",
-    readTime: 5,
-    views: 4200,
-    likes: 298,
-    saves: 134,
-    featured: true,
-    trending: true,
-    trendingScore: 82,
-  },
-  {
-    _id: "trending-4",
-    title: "Quantum Internet: First Intercontinental Quantum Communication",
-    slug: "quantum-internet-first-intercontinental-quantum-communication",
-    excerpt:
-      "Scientists achieve first successful intercontinental quantum communication, marking a milestone toward the quantum internet.",
-    thumbnail: "/placeholder.svg?height=400&width=600",
-    createdAt: new Date(Date.now() - 10800000).toISOString(),
-    tags: ["Quantum", "Internet", "Communication", "Science"],
-    category: "Science",
-    readTime: 7,
-    views: 2100,
-    likes: 189,
-    saves: 67,
-    featured: false,
-    trending: true,
-    trendingScore: 75,
-  },
-  {
-    _id: "trending-5",
-    title: "Remote Work Revolution: Major Companies Go Fully Distributed",
-    slug: "remote-work-revolution-major-companies-fully-distributed",
-    excerpt:
-      "Fortune 500 companies announce permanent shift to fully distributed workforce, reshaping the future of work.",
-    thumbnail: "/placeholder.svg?height=400&width=600",
-    createdAt: new Date(Date.now() - 14400000).toISOString(),
-    tags: ["Remote Work", "Business", "Future of Work", "Technology"],
+    tags: ["Remote Work", "Technology", "Business", "Future"],
     category: "Business",
-    readTime: 5,
-    views: 3100,
-    likes: 234,
-    saves: 98,
+    readTime: 7,
+    views: 1650,
+    likes: 98,
+    saves: 45,
     featured: false,
-    trending: true,
-    trendingScore: 71,
+    author: "TrendBot AI",
+    trendData: {
+      trendScore: 82,
+      searchVolume: "Medium",
+      source: "Social Media",
+    },
   },
 ]
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     console.log("🔥 [FRONTEND API] Trending articles API called")
 
@@ -104,46 +81,57 @@ export async function GET() {
     try {
       console.log("🔗 [FRONTEND API] Attempting to fetch trending articles from backend:", backendUrl)
 
-      const response = await fetch(`${backendUrl}/api/articles/trending`, {
+      const apiUrl = `${backendUrl}/api/articles/trending/top`
+      console.log("📡 [FRONTEND API] Trending API URL:", apiUrl)
+
+      const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
         cache: "no-store",
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       })
 
-      console.log(`📈 [FRONTEND API] Trending backend response status: ${response.status}`)
+      console.log(`📈 [FRONTEND API] Backend trending response status: ${response.status}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [FRONTEND API] Successfully fetched trending articles from backend:`, data)
+        console.log(
+          `✅ [FRONTEND API] Successfully fetched ${data.articles?.length || 0} trending articles from backend`,
+        )
 
-        // Handle different response formats
-        if (data.articles && Array.isArray(data.articles)) {
+        if (data.success && data.articles && Array.isArray(data.articles)) {
+          // Add trend data to articles if not present
+          const articlesWithTrendData = data.articles.map((article) => ({
+            ...article,
+            trendData: article.trendData || {
+              trendScore: Math.floor(Math.random() * 30) + 70, // Random score between 70-100
+              searchVolume: ["High", "Medium", "Low"][Math.floor(Math.random() * 3)],
+              source: ["Google Trends", "Social Media", "News Analysis"][Math.floor(Math.random() * 3)],
+            },
+          }))
+
           return NextResponse.json({
             success: true,
-            articles: data.articles,
-          })
-        } else if (Array.isArray(data)) {
-          return NextResponse.json({
-            success: true,
-            articles: data,
+            articles: articlesWithTrendData,
           })
         } else {
-          throw new Error("Invalid trending articles response format")
+          throw new Error("Invalid trending articles response format from backend")
         }
       } else {
         const errorText = await response.text()
-        console.log(`⚠️ [FRONTEND API] Trending backend error: ${errorText}`)
+        console.log(`⚠️ [FRONTEND API] Backend trending error response: ${errorText}`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
       console.log(
-        "⚠️ [FRONTEND API] Trending backend not available, using mock data:",
+        "⚠️ [FRONTEND API] Backend trending articles not available, using mock data:",
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
+
+      console.log(`📊 [FRONTEND API] Returning ${mockTrendingArticles.length} mock trending articles`)
 
       return NextResponse.json({
         success: true,
@@ -151,7 +139,7 @@ export async function GET() {
       })
     }
   } catch (error) {
-    console.error("❌ [FRONTEND API] Critical error in trending API:", error)
+    console.error("❌ [FRONTEND API] Critical error in trending articles API:", error)
 
     return NextResponse.json(
       {

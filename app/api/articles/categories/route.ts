@@ -1,21 +1,18 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
+// Mock categories data
 const mockCategories = [
-  { name: "Technology", count: 25, slug: "technology" },
-  { name: "AI", count: 18, slug: "ai" },
-  { name: "Healthcare", count: 12, slug: "healthcare" },
-  { name: "Environment", count: 15, slug: "environment" },
-  { name: "Business", count: 20, slug: "business" },
-  { name: "Science", count: 8, slug: "science" },
-  { name: "Innovation", count: 10, slug: "innovation" },
-  { name: "Sustainability", count: 14, slug: "sustainability" },
-  { name: "Climate", count: 9, slug: "climate" },
-  { name: "Work", count: 11, slug: "work" },
+  { name: "Technology", count: 15, slug: "technology" },
+  { name: "Business", count: 12, slug: "business" },
+  { name: "Health", count: 8, slug: "health" },
+  { name: "Science", count: 10, slug: "science" },
+  { name: "Environment", count: 6, slug: "environment" },
+  { name: "Entertainment", count: 5, slug: "entertainment" },
 ]
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     console.log("📂 [FRONTEND API] Categories API called")
 
@@ -24,46 +21,45 @@ export async function GET() {
     try {
       console.log("🔗 [FRONTEND API] Attempting to fetch categories from backend:", backendUrl)
 
-      const response = await fetch(`${backendUrl}/api/articles/categories`, {
+      const apiUrl = `${backendUrl}/api/articles/meta/categories`
+      console.log("📡 [FRONTEND API] Categories API URL:", apiUrl)
+
+      const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
         cache: "no-store",
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       })
 
-      console.log(`📈 [FRONTEND API] Categories backend response status: ${response.status}`)
+      console.log(`📈 [FRONTEND API] Backend categories response status: ${response.status}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [FRONTEND API] Successfully fetched categories from backend:`, data)
+        console.log(`✅ [FRONTEND API] Successfully fetched ${data.categories?.length || 0} categories from backend`)
 
-        // Handle different response formats
-        if (data.categories && Array.isArray(data.categories)) {
+        if (data.success && data.categories && Array.isArray(data.categories)) {
           return NextResponse.json({
             success: true,
             categories: data.categories,
           })
-        } else if (Array.isArray(data)) {
-          return NextResponse.json({
-            success: true,
-            categories: data,
-          })
         } else {
-          throw new Error("Invalid categories response format")
+          throw new Error("Invalid categories response format from backend")
         }
       } else {
         const errorText = await response.text()
-        console.log(`⚠️ [FRONTEND API] Categories backend error: ${errorText}`)
+        console.log(`⚠️ [FRONTEND API] Backend categories error response: ${errorText}`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
       console.log(
-        "⚠️ [FRONTEND API] Categories backend not available, using mock data:",
+        "⚠️ [FRONTEND API] Backend categories not available, using mock data:",
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
+
+      console.log(`📊 [FRONTEND API] Returning ${mockCategories.length} mock categories`)
 
       return NextResponse.json({
         success: true,

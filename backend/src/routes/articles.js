@@ -1,205 +1,320 @@
-const fastify = require("fastify")()
 const Article = require("../models/Article")
 
-// Get all articles with pagination and filtering
-fastify.get("/", async (request, reply) => {
-  try {
-    console.log("📊 [BACKEND] Articles API called with query:", request.query)
+async function articleRoutes(fastify, options) {
+  // Get all articles
+  fastify.get("/", async (request, reply) => {
+    try {
+      console.log("📚 [BACKEND DB] Fetching articles from database...")
+      const { page = 1, limit = 10, search, tag, category } = request.query
 
-    const {
-      page = 1,
-      limit = 10,
-      search = "",
-      tag = "",
-      category = "",
-      featured = "",
-      status = "published",
-    } = request.query
+      const query = { status: "published" }
 
-    const pageNum = Number.parseInt(page)
-    const limitNum = Number.parseInt(limit)
-    const skip = (pageNum - 1) * limitNum
+      if (search) {
+        query.$text = { $search: search }
+      }
 
-    console.log(`📄 [BACKEND] Pagination: page=${pageNum}, limit=${limitNum}, skip=${skip}`)
+      if (tag) {
+        query.tags = { $in: [tag] }
+      }
 
-    // Build query
-    const query = { status }
+      if (category) {
+        query.tags = { $in: [category] }
+      }
 
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { excerpt: { $regex: search, $options: "i" } },
-        { content: { $regex: search, $options: "i" } },
-      ]
-      console.log(`🔍 [BACKEND] Search query: "${search}"`)
-    }
+      const articles = await Article.find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content") // Exclude full content for list view
 
-    if (tag) {
-      query.tags = { $in: [new RegExp(tag, "i")] }
-      console.log(`🏷️ [BACKEND] Tag filter: "${tag}"`)
-    }
+      const total = await Article.countDocuments(query)
 
-    if (category) {
-      query.category = { $regex: category, $options: "i" }
-      console.log(`📂 [BACKEND] Category filter: "${category}"`)
-    }
+      console.log(`✅ [BACKEND DB] Successfully retrieved ${articles.length} articles from database (${total} total)`)
 
-    if (featured === "true") {
-      query.featured = true
-      console.log("⭐ [BACKEND] Featured articles only")
-    }
+      if (articles.length === 0) {
+        console.log("📝 [BACKEND DB] No articles found in database")
+      }
 
-    console.log("🔍 [BACKEND] Final query:", JSON.stringify(query, null, 2))
-
-    // Get total count for pagination
-    const total = await Article.countDocuments(query)
-    console.log(`📊 [BACKEND] Total articles matching query: ${total}`)
-
-    // Get articles
-    const articles = await Article.find(query).sort({ createdAt: -1, featured: -1 }).skip(skip).limit(limitNum).lean()
-
-    console.log(`✅ [BACKEND] Found ${articles.length} articles`)
-
-    // Calculate pagination info
-    const totalPages = Math.ceil(total / limitNum)
-    const hasNextPage = pageNum < totalPages
-    const hasPrevPage = pageNum > 1
-
-    const response = {
-      success: true,
-      articles,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: totalPages,
-        hasNextPage,
-        hasPrevPage,
-      },
-    }
-
-    console.log(`📤 [BACKEND] Sending response with ${articles.length} articles`)
-    return response
-  } catch (error) {
-    console.error("❌ [BACKEND] Error fetching articles:", error)
-    reply.status(500).send({
-      success: false,
-      error: "Failed to fetch articles",
-      message: error.message,
-    })
-  }
-})
-
-// Get trending articles
-fastify.get("/trending", async (request, reply) => {
-  try {
-    console.log("🔥 [BACKEND] Trending articles API called")
-
-    const articles = await Article.find({
-      status: "published",
-      $or: [{ featured: true }, { "stats.views": { $gte: 1000 } }, { "stats.likes": { $gte: 50 } }],
-    })
-      .sort({
-        "stats.views": -1,
-        "stats.likes": -1,
-        createdAt: -1,
+      reply.send({
+        success: true,
+        articles,
+        pagination: {
+          page: Number.parseInt(page),
+          limit: Number.parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
       })
-      .limit(10)
-      .lean()
-
-    console.log(`✅ [BACKEND] Found ${articles.length} trending articles`)
-
-    return {
-      success: true,
-      articles,
-    }
-  } catch (error) {
-    console.error("❌ [BACKEND] Error fetching trending articles:", error)
-    reply.status(500).send({
-      success: false,
-      error: "Failed to fetch trending articles",
-      message: error.message,
-    })
-  }
-})
-
-// Get categories
-fastify.get("/categories", async (request, reply) => {
-  try {
-    console.log("📂 [BACKEND] Categories API called")
-
-    const categories = await Article.aggregate([
-      { $match: { status: "published" } },
-      {
-        $group: {
-          _id: "$category",
-          count: { $sum: 1 },
-          name: { $first: "$category" },
-        },
-      },
-      { $sort: { count: -1 } },
-      {
-        $project: {
-          _id: 0,
-          name: "$name",
-          count: "$count",
-          slug: { $toLower: { $replaceAll: { input: "$name", find: " ", replacement: "-" } } },
-        },
-      },
-    ])
-
-    console.log(`✅ [BACKEND] Found ${categories.length} categories`)
-
-    return {
-      success: true,
-      categories,
-    }
-  } catch (error) {
-    console.error("❌ [BACKEND] Error fetching categories:", error)
-    reply.status(500).send({
-      success: false,
-      error: "Failed to fetch categories",
-      message: error.message,
-    })
-  }
-})
-
-// Get single article by slug
-fastify.get("/:slug", async (request, reply) => {
-  try {
-    const { slug } = request.params
-    console.log(`📄 [BACKEND] Single article requested: "${slug}"`)
-
-    const article = await Article.findOne({
-      slug,
-      status: "published",
-    }).lean()
-
-    if (!article) {
-      console.log(`❌ [BACKEND] Article not found: "${slug}"`)
-      return reply.status(404).send({
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching articles:", error.message)
+      reply.status(500).send({
         success: false,
-        error: "Article not found",
+        error: "Failed to fetch articles",
       })
     }
+  })
 
-    // Increment view count
-    await Article.updateOne({ _id: article._id }, { $inc: { "stats.views": 1 } })
+  // Get single article by ID
+  fastify.get("/by-id/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      console.log(`🔍 [BACKEND DB] Fetching article with ID: ${id}`)
 
-    console.log(`✅ [BACKEND] Article found: "${article.title}"`)
+      const article = await Article.findById(id)
 
-    return {
-      success: true,
-      article,
+      if (!article) {
+        console.log(`❌ [BACKEND DB] Article not found with ID: ${id}`)
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      console.log(`✅ [BACKEND DB] Successfully retrieved article: ${article.title}`)
+      reply.send(article)
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching article by ID:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch article",
+      })
     }
-  } catch (error) {
-    console.error("❌ [BACKEND] Error fetching article:", error)
-    reply.status(500).send({
-      success: false,
-      error: "Failed to fetch article",
-      message: error.message,
-    })
-  }
-})
+  })
 
-module.exports = fastify
+  // Get single article by slug
+  fastify.get("/:slug", async (request, reply) => {
+    try {
+      const { slug } = request.params
+      console.log(`🔍 [BACKEND DB] Fetching article with slug: ${slug}`)
+
+      const article = await Article.findOne({
+        slug,
+        status: "published",
+      })
+
+      if (!article) {
+        console.log(`❌ [BACKEND DB] Article not found with slug: ${slug}`)
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      // Increment view count
+      article.views = (article.views || 0) + 1
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Successfully retrieved article: ${article.title}`)
+      reply.send(article)
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching article:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch article",
+      })
+    }
+  })
+
+  // Get trending articles
+  fastify.get("/trending/top", async (request, reply) => {
+    try {
+      console.log("🔥 [BACKEND DB] Fetching trending articles...")
+
+      const articles = await Article.find({ status: "published" })
+        .sort({ views: -1, likes: -1, saves: -1 })
+        .limit(10)
+        .select("-content")
+
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} trending articles`)
+      reply.send({
+        success: true,
+        articles,
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching trending articles:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch trending articles",
+      })
+    }
+  })
+
+  // Get articles by category
+  fastify.get("/category/:category", async (request, reply) => {
+    try {
+      const { category } = request.params
+      const { page = 1, limit = 10 } = request.query
+      console.log(`📂 [BACKEND DB] Fetching articles for category: ${category}`)
+
+      const articles = await Article.find({
+        tags: { $in: [category] },
+        status: "published",
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content")
+
+      const total = await Article.countDocuments({
+        tags: { $in: [category] },
+        status: "published",
+      })
+
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} articles for category: ${category}`)
+      reply.send({
+        success: true,
+        articles,
+        category,
+        pagination: {
+          page: Number.parseInt(page),
+          limit: Number.parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching articles by category:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles by category",
+      })
+    }
+  })
+
+  // Get articles by tag
+  fastify.get("/tag/:tag", async (request, reply) => {
+    try {
+      const { tag } = request.params
+      const { page = 1, limit = 10 } = request.query
+      console.log(`🏷️ [BACKEND DB] Fetching articles for tag: ${tag}`)
+
+      const articles = await Article.find({
+        tags: { $in: [tag] },
+        status: "published",
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content")
+
+      const total = await Article.countDocuments({
+        tags: { $in: [tag] },
+        status: "published",
+      })
+
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} articles for tag: ${tag}`)
+      reply.send({
+        success: true,
+        articles,
+        tag,
+        pagination: {
+          page: Number.parseInt(page),
+          limit: Number.parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching articles by tag:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles by tag",
+      })
+    }
+  })
+
+  // Get available categories
+  fastify.get("/meta/categories", async (request, reply) => {
+    try {
+      console.log("🏷️ [BACKEND DB] Fetching all categories...")
+
+      const categories = await Article.aggregate([
+        { $match: { status: "published" } },
+        { $unwind: "$tags" },
+        { $group: { _id: "$tags", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 20 },
+      ])
+
+      const formattedCategories = categories.map((cat) => ({
+        name: cat._id,
+        count: cat.count,
+        slug: cat._id.toLowerCase().replace(/\s+/g, "-"),
+      }))
+
+      console.log(`✅ [BACKEND DB] Retrieved ${categories.length} categories`)
+      reply.send({
+        success: true,
+        categories: formattedCategories,
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching categories:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch categories",
+      })
+    }
+  })
+
+  // Like/unlike an article
+  fastify.post("/like/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const { increment } = request.body
+      console.log(`👍 [BACKEND DB] ${increment ? "Liking" : "Unliking"} article ${id}`)
+
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({ success: false, error: "Article not found" })
+      }
+
+      if (increment) {
+        article.likes = (article.likes || 0) + 1
+      } else {
+        article.likes = Math.max(0, (article.likes || 0) - 1)
+      }
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Article ${id} now has ${article.likes} likes`)
+      reply.send({ success: true, likes: article.likes, liked: increment })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error updating likes:", error.message)
+      reply.status(500).send({ success: false, error: "Failed to update likes" })
+    }
+  })
+
+  // Save/unsave an article
+  fastify.post("/save/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const { increment } = request.body
+      console.log(`💾 [BACKEND DB] ${increment ? "Saving" : "Unsaving"} article ${id}`)
+
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({ success: false, error: "Article not found" })
+      }
+
+      if (increment) {
+        article.saves = (article.saves || 0) + 1
+      } else {
+        article.saves = Math.max(0, (article.saves || 0) - 1)
+      }
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Article ${id} now has ${article.saves} saves`)
+      reply.send({ success: true, saves: article.saves, saved: increment })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error updating saves:", error.message)
+      reply.status(500).send({ success: false, error: "Failed to update saves" })
+    }
+  })
+}
+
+module.exports = articleRoutes
