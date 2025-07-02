@@ -32,74 +32,54 @@ class TrendCrawler {
 
   async crawlTrends() {
     console.log("🔍 [TrendCrawler] Starting trend crawling...")
-    console.log(`🔧 [TrendCrawler] Sources: ${JSON.stringify(this.sources.map(s => s.name))}`)
     this.stats.totalCrawls++
     this.stats.lastCrawl = new Date()
 
-    const allTrends = []
-    const sourceResults = []
+    try {
+      // Import GNews service
+      const GNewsService = require("./gnewsService")
 
-    for (const source of this.sources) {
-      try {
-        console.log(`📡 [TrendCrawler] Crawling ${source.name}...`)
-        console.log(`🔗 [TrendCrawler] Source URL: ${source.url}`)
+      console.log("📡 [TrendCrawler] Fetching trends from GNews...")
+      const gnewsResult = await GNewsService.getTrendingTopics(10)
 
-        let trends = []
-        if (source.type === "rss") {
-          trends = await this.crawlRSSFeed(source)
-        } else if (source.type === "reddit") {
-          trends = await this.crawlReddit(source)
+      if (gnewsResult.success && gnewsResult.trends) {
+        const trends = gnewsResult.trends.map((article) => ({
+          title: article.title,
+          description: article.description,
+          url: article.url,
+          publishedAt: article.publishedAt,
+          source: "gnews",
+          category: article.category,
+          tags: article.tags,
+          score: article.score,
+          thumbnail: article.image || "/placeholder.svg?height=400&width=600",
+        }))
+
+        this.stats.successfulCrawls++
+        this.stats.trendsFound += trends.length
+
+        console.log(`🎉 [TrendCrawler] Successfully crawled ${trends.length} trends`)
+
+        return {
+          success: true,
+          trends: trends,
+          source: "gnews",
+          timestamp: new Date().toISOString(),
         }
-
-        sourceResults.push({
-          source: source.name,
-          success: trends.length > 0,
-          count: trends.length,
-          timestamp: new Date().toISOString()
-        })
-
-        if (trends.length > 0) {
-          allTrends.push(...trends)
-          console.log(`✅ [TrendCrawler] Found ${trends.length} trends from ${source.name}`)
-        } else {
-          console.log(`⚠️ [TrendCrawler] No trends found from ${source.name}`)
-        }
-      } catch (error) {
-        console.error(`❌ [TrendCrawler] Failed to crawl ${source.name}: ${error.message}`)
-        console.error(`🔍 [TrendCrawler] Error details: ${JSON.stringify(error.response?.data || {})}`)
-        this.stats.errors++
-        sourceResults.push({
-          source: source.name,
-          success: false,
-          error: error.message,
-          status: error.response?.status,
-          timestamp: new Date().toISOString()
-        })
       }
-    }
 
-    console.log(`📊 [TrendCrawler] Source results: ${JSON.stringify(sourceResults)}`)
+      throw new Error("No trends found from GNews")
+    } catch (error) {
+      console.error("❌ [TrendCrawler] Crawling failed:", error.message)
+      this.stats.errors++
 
-    if (allTrends.length > 0) {
-      this.stats.successfulCrawls++
-      this.stats.trendsFound += allTrends.length
-
-      console.log(`🎉 [TrendCrawler] Crawling completed: ${allTrends.length} total trends found`)
-
-      return {
-        success: true,
-        trends: allTrends,
-        sources: sourceResults,
-        timestamp: new Date().toISOString(),
-      }
-    } else {
-      console.log("⚠️ [TrendCrawler] No trends found from any source")
+      // Return fallback trends
       return {
         success: false,
-        error: "No trends found from any source",
-        sources: sourceResults,
-        trends: [],
-        timestamp: new Date().toISOString()
+        trends: this.getFallbackTrends(),
+        source: "fallback",
+        error: error.message,
+        timestamp: new Date().toISOString(),
       }
     }
   }
@@ -305,7 +285,7 @@ class TrendCrawler {
       // Test with a more reliable URL for health check
       const testUrl = "https://www.google.com" // Use a reliable URL instead of the actual source
       console.log(`🔗 [TrendCrawler] Testing connection to: ${testUrl}`)
-      
+
       const startTime = Date.now()
       const response = await axios.get(testUrl, {
         timeout: 5000,
@@ -324,7 +304,7 @@ class TrendCrawler {
         responseTime: `${responseTime}ms`,
         dataSize: response.data.length,
         lastCheck: new Date().toISOString(),
-        sourceStatus: []
+        sourceStatus: [],
       }
 
       // Also log individual source statuses but don't fail the whole check
@@ -337,23 +317,23 @@ class TrendCrawler {
               "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
             },
           })
-          
+
           healthStatus.sourceStatus.push({
             name: source.name,
             url: source.url,
             status: sourceResponse.status,
             healthy: sourceResponse.status === 200,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           })
         } catch (sourceError) {
           console.log(`⚠️ [TrendCrawler] Source ${source.name} health check failed: ${sourceError.message}`)
           healthStatus.sourceStatus.push({
             name: source.name,
             url: source.url,
-            status: sourceError.response?.status || 'unknown',
+            status: sourceError.response?.status || "unknown",
             healthy: false,
             error: sourceError.message,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           })
         }
       }
@@ -369,6 +349,40 @@ class TrendCrawler {
         timestamp: new Date().toISOString(),
       }
     }
+  }
+
+  getFallbackTrends() {
+    return [
+      {
+        title: "AI Revolution: Latest Breakthroughs in Machine Learning",
+        description:
+          "Exploring the newest developments in artificial intelligence and their impact on various industries.",
+        source: "fallback",
+        category: "Technology",
+        tags: ["AI", "Technology", "Innovation"],
+        score: 85,
+        publishedAt: new Date().toISOString(),
+      },
+      {
+        title: "Sustainable Technology: Green Innovation Trends",
+        description:
+          "How sustainable technology is reshaping industries and creating new opportunities for environmental protection.",
+        source: "fallback",
+        category: "Environment",
+        tags: ["Sustainability", "Green Tech", "Environment"],
+        score: 80,
+        publishedAt: new Date().toISOString(),
+      },
+      {
+        title: "Digital Transformation: Business Evolution in 2024",
+        description: "Companies are embracing digital transformation to stay competitive in the modern marketplace.",
+        source: "fallback",
+        category: "Business",
+        tags: ["Digital", "Business", "Transformation"],
+        score: 75,
+        publishedAt: new Date().toISOString(),
+      },
+    ]
   }
 }
 

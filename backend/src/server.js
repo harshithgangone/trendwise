@@ -149,8 +149,19 @@ const start = async () => {
     // Start TrendBot after server is running
     console.log("🤖 [Server] Starting TrendBot...")
     try {
-      trendBot.start()
-      console.log("✅ [Server] TrendBot started successfully")
+      // Give the server a moment to fully initialize
+      setTimeout(() => {
+        trendBot.start()
+        console.log("✅ [Server] TrendBot started successfully")
+
+        // Trigger an immediate run after 10 seconds
+        setTimeout(() => {
+          console.log("🚀 [Server] Triggering initial TrendBot run...")
+          trendBot.runCycle().catch((error) => {
+            console.error("❌ [Server] Initial TrendBot run failed:", error)
+          })
+        }, 10000)
+      }, 2000)
     } catch (botError) {
       console.error("❌ [Server] Failed to start TrendBot:", botError)
       // Don't exit - server can run without bot

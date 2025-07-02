@@ -21,7 +21,7 @@ class TrendBot {
     }
     this.config = {
       // Changed from 10 minutes to 10 minutes
-      interval: "*/10 * * * *", // Every 10 minutes
+      interval: "*/5 * * * *", // Every 10 minutes
       maxArticlesPerRun: 10, // Increased from 3 to 10 to process more articles
       retryAttempts: 3,
       retryDelay: 5000,
@@ -119,7 +119,7 @@ class TrendBot {
       // Use the imported instance directly
       const crawlResult = await TrendCrawler.crawlTrends()
       console.log(`📊 [TrendBot] Crawl result: ${JSON.stringify(crawlResult)}`)
-      
+
       // Extract trends array from the result object
       let trends = []
       if (crawlResult && crawlResult.success && Array.isArray(crawlResult.trends)) {
@@ -247,7 +247,7 @@ class TrendBot {
 
   async processTrends(rawTrends) {
     console.log(`🔍 [TrendBot] Processing ${rawTrends ? rawTrends.length : 0} raw trends...`)
-    
+
     if (!rawTrends || !Array.isArray(rawTrends) || rawTrends.length === 0) {
       console.log("⚠️ [TrendBot] No valid trends to process, returning empty array")
       return []
@@ -394,32 +394,24 @@ class TrendBot {
 
       // Step 3: Create article object
       const articleData = {
-        title: aiContent.title,
-        slug: this.generateSlug(aiContent.title),
+        title: trend.title,
+        slug: this.generateSlug(trend.title),
         content: aiContent.content,
-        excerpt: aiContent.excerpt || this.generateExcerpt(aiContent.content),
+        excerpt: trend.description || this.generateExcerpt(aiContent.content),
         thumbnail: thumbnail,
-        author: "TrendBot AI",
-        category: this.categorizeContent(aiContent.title, aiContent.content),
-        tags: aiContent.tags || this.extractTags(aiContent.title, aiContent.content),
+        tags: this.extractTags(trend.title, trend.description || ""),
+        readTime: this.calculateReadTime(aiContent.content),
+        views: 0,
+        likes: 0,
+        saves: 0,
+        featured: Math.random() > 0.7,
         status: "published",
-        publishedAt: new Date(),
-        stats: {
-          views: 0,
-          likes: 0,
-          shares: 0,
-          comments: 0,
-        },
-        seo: {
-          metaTitle: aiContent.title,
-          metaDescription: aiContent.excerpt || this.generateExcerpt(aiContent.content),
-          keywords: (aiContent.tags || []).join(", "),
-        },
-        source: {
-          type: "trend",
-          originalTrend: trend,
-          generatedBy: "TrendBot",
-          generatedAt: new Date(),
+        trendData: {
+          source: trend.source || "unknown",
+          originalQuery: trend.title,
+          trendScore: trend.score || 50,
+          searchVolume: trend.searchVolume || "1K-10K",
+          geo: "US",
         },
       }
 
@@ -586,6 +578,12 @@ class TrendBot {
       averageArticlesPerRun:
         this.stats.successfulRuns > 0 ? this.stats.articlesGenerated / this.stats.successfulRuns : 0,
     }
+  }
+
+  calculateReadTime(content) {
+    const wordsPerMinute = 200
+    const wordCount = content.split(" ").length
+    return Math.max(1, Math.ceil(wordCount / wordsPerMinute))
   }
 }
 

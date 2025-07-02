@@ -1,109 +1,114 @@
-const axios = require('axios')
+const axios = require("axios")
 
 class GroqService {
   constructor() {
     this.apiKey = process.env.GROQ_API_KEY
-    this.baseUrl = 'https://api.groq.com/openai/v1'
-    this.model = 'llama3-8b-8192' // Fast and efficient model
+    this.baseUrl = "https://api.groq.com/openai/v1"
+    this.model = "llama3-8b-8192" // Fast and efficient model
     this.requestTimeout = 30000 // 30 seconds
     this.maxRetries = 2
   }
 
   async generateArticleContent(article) {
-    console.log('🤖 [GROQ SERVICE] Starting article content generation...')
+    console.log("🤖 [GROQ SERVICE] Starting article content generation...")
     console.log(`📝 [GROQ SERVICE] Article: "${article.title?.substring(0, 50)}..."`)
-    console.log(`🔑 [GROQ SERVICE] API Key: ${this.apiKey ? 'Present' : 'Missing'}`)
+    console.log(`🔑 [GROQ SERVICE] API Key: ${this.apiKey ? "Present" : "Missing"}`)
 
     if (!this.apiKey) {
-      console.log('⚠️ [GROQ SERVICE] No API key found, using fallback content')
+      console.log("⚠️ [GROQ SERVICE] No API key found, using fallback content")
       return this.generateFallbackContent(article)
     }
 
     try {
       const prompt = this.createArticlePrompt(article)
       console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
-      
+
       const response = await this.makeGroqRequest(prompt)
-      
+
       if (response && response.content) {
         console.log(`✅ [GROQ SERVICE] Successfully generated ${response.content.length} characters of content`)
         return {
           success: true,
+          title: article.title,
           content: response.content,
-          seo: response.seo || this.generateSEOData(article),
-          source: 'groq_ai'
+          excerpt: article.description || this.generateExcerpt(response.content),
+          tags: this.extractTags(article.title, article.description || ""),
+          seo: this.generateSEOData(article),
+          source: "groq_ai",
         }
       }
-      
-      throw new Error('No content received from Groq API')
+
+      throw new Error("No content received from Groq API")
     } catch (error) {
-      console.error('❌ [GROQ SERVICE] Content generation failed:', error.message)
-      console.log('🔄 [GROQ SERVICE] Falling back to template content...')
+      console.error("❌ [GROQ SERVICE] Content generation failed:", error.message)
+      console.log("🔄 [GROQ SERVICE] Falling back to template content...")
       return this.generateFallbackContent(article)
     }
   }
 
   async generateTweetContent(prompt) {
-    console.log('🐦 [GROQ SERVICE] Generating tweet content...')
+    console.log("🐦 [GROQ SERVICE] Generating tweet content...")
     console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
 
     if (!this.apiKey) {
-      console.log('⚠️ [GROQ SERVICE] No API key, returning null for tweets')
+      console.log("⚠️ [GROQ SERVICE] No API key, returning null for tweets")
       return null
     }
 
     try {
-      const response = await this.makeGroqRequest(prompt, 'json')
-      
+      const response = await this.makeGroqRequest(prompt, "json")
+
       if (response) {
-        console.log('✅ [GROQ SERVICE] Tweet content generated successfully')
+        console.log("✅ [GROQ SERVICE] Tweet content generated successfully")
         return response
       }
-      
+
       return null
     } catch (error) {
-      console.error('❌ [GROQ SERVICE] Tweet generation failed:', error.message)
+      console.error("❌ [GROQ SERVICE] Tweet generation failed:", error.message)
       return null
     }
   }
 
-  async makeGroqRequest(prompt, responseFormat = 'text') {
-    console.log('📡 [GROQ SERVICE] Making API request to Groq...')
+  async makeGroqRequest(prompt, responseFormat = "text") {
+    console.log("📡 [GROQ SERVICE] Making API request to Groq...")
     console.log(`📝 [GROQ SERVICE] Prompt summary: ${prompt.substring(0, 100)}...`)
     console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
-    
+
     const requestData = {
       model: this.model,
       messages: [
         {
-          role: 'user',
-          content: prompt
-        }
+          role: "user",
+          content: prompt,
+        },
       ],
-      max_tokens: responseFormat === 'json' ? 1000 : 4000, // Increased max tokens for better content
+      max_tokens: responseFormat === "json" ? 1000 : 4000, // Increased max tokens for better content
       temperature: 0.7,
-      top_p: 0.9
+      top_p: 0.9,
     }
 
-    if (responseFormat === 'json') {
-      requestData.response_format = { type: 'json_object' }
+    if (responseFormat === "json") {
+      requestData.response_format = { type: "json_object" }
     }
 
-    console.log(`🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`)
-    console.log(`🔑 [GROQ SERVICE] API Key status: ${this.apiKey ? 'Present (valid)' : 'Missing'}`)
+    console.log(
+      `🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`,
+    )
+    console.log(`🔑 [GROQ SERVICE] API Key status: ${this.apiKey ? "Present (valid)" : "Missing"}`)
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         console.log(`🔄 [GROQ SERVICE] Attempt ${attempt}/${this.maxRetries}`)
         console.log(`⏳ [GROQ SERVICE] Sending request to Groq API...`)
-        
+
         const startTime = Date.now()
         const response = await axios.post(`${this.baseUrl}/chat/completions`, requestData, {
           headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json'
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
           },
-          timeout: this.requestTimeout
+          timeout: this.requestTimeout,
         })
         const endTime = Date.now()
         const duration = endTime - startTime
@@ -111,41 +116,45 @@ class GroqService {
         console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
         console.log(`⏱️ [GROQ SERVICE] Request duration: ${duration}ms`)
         console.log(`📊 [GROQ SERVICE] Usage: ${JSON.stringify(response.data.usage || {})}`)
-        console.log(`📊 [GROQ SERVICE] Tokens: Input=${response.data.usage?.prompt_tokens || 'unknown'}, Output=${response.data.usage?.completion_tokens || 'unknown'}, Total=${response.data.usage?.total_tokens || 'unknown'}`)
+        console.log(
+          `📊 [GROQ SERVICE] Tokens: Input=${response.data.usage?.prompt_tokens || "unknown"}, Output=${response.data.usage?.completion_tokens || "unknown"}, Total=${response.data.usage?.total_tokens || "unknown"}`,
+        )
 
         if (response.data && response.data.choices && response.data.choices[0]) {
           const content = response.data.choices[0].message.content
           console.log(`📄 [GROQ SERVICE] Response content length: ${content.length} characters`)
           console.log(`📄 [GROQ SERVICE] Response preview: ${content.substring(0, 100)}...`)
 
-          if (responseFormat === 'json') {
+          if (responseFormat === "json") {
             try {
               const parsed = JSON.parse(content)
-              console.log('✅ [GROQ SERVICE] JSON response parsed successfully')
-              console.log(`📊 [GROQ SERVICE] JSON keys: ${Object.keys(parsed).join(', ')}`)
+              console.log("✅ [GROQ SERVICE] JSON response parsed successfully")
+              console.log(`📊 [GROQ SERVICE] JSON keys: ${Object.keys(parsed).join(", ")}`)
               return parsed
             } catch (parseError) {
-              console.error('❌ [GROQ SERVICE] JSON parsing failed:', parseError.message)
+              console.error("❌ [GROQ SERVICE] JSON parsing failed:", parseError.message)
               console.error(`📄 [GROQ SERVICE] Invalid JSON content: ${content.substring(0, 200)}...`)
-              throw new Error('Invalid JSON response from API')
+              throw new Error("Invalid JSON response from API")
             }
           } else {
             return { content }
           }
         }
 
-        throw new Error('No content in API response')
+        throw new Error("No content in API response")
       } catch (error) {
         console.error(`❌ [GROQ SERVICE] Attempt ${attempt} failed:`, error.message)
-        
+
         if (error.response) {
           console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
           console.error(`📊 [GROQ SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
-          
+
           // Don't retry on certain errors
           if (error.response.status === 401 || error.response.status === 403) {
-            console.error(`🔑 [GROQ SERVICE] Authentication error: ${error.response.status} - ${error.response.statusText}`)
-            throw new Error('Authentication failed - check API key')
+            console.error(
+              `🔑 [GROQ SERVICE] Authentication error: ${error.response.status} - ${error.response.statusText}`,
+            )
+            throw new Error("Authentication failed - check API key")
           }
         } else if (error.request) {
           console.error(`📡 [GROQ SERVICE] Network error: No response received`)
@@ -161,16 +170,16 @@ class GroqService {
         // Wait before retry
         const waitTime = attempt * 2000
         console.log(`⏳ [GROQ SERVICE] Waiting ${waitTime}ms before retry...`)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
+        await new Promise((resolve) => setTimeout(resolve, waitTime))
       }
     }
   }
 
   createArticlePrompt(article) {
-    const title = article.title || 'Untitled Article'
-    const excerpt = article.excerpt || article.description || 'No description available'
-    const category = article.category || 'General'
-    const tags = Array.isArray(article.tags) ? article.tags.join(', ') : 'technology, news'
+    const title = article.title || "Untitled Article"
+    const excerpt = article.excerpt || article.description || "No description available"
+    const category = article.category || "General"
+    const tags = Array.isArray(article.tags) ? article.tags.join(", ") : "technology, news"
 
     return `Write a comprehensive, SEO-optimized blog article about: "${title}"
 
@@ -200,12 +209,12 @@ Focus on providing value to readers while maintaining readability and SEO best p
   }
 
   generateFallbackContent(article) {
-    console.log('🎭 [GROQ SERVICE] Generating fallback content...')
-    
-    const title = article.title || 'Trending Topic'
-    const excerpt = article.excerpt || article.description || 'Latest developments in this trending topic'
-    const category = article.category || 'Technology'
-    const tags = Array.isArray(article.tags) ? article.tags : ['technology', 'news']
+    console.log("🎭 [GROQ SERVICE] Generating fallback content...")
+
+    const title = article.title || "Trending Topic"
+    const excerpt = article.excerpt || article.description || "Latest developments in this trending topic"
+    const category = article.category || "Technology"
+    const tags = Array.isArray(article.tags) ? article.tags : ["technology", "news"]
 
     const content = `# ${title}
 
@@ -256,73 +265,77 @@ As we continue to monitor these developments, it's clear that staying informed a
       success: false,
       content,
       seo: this.generateSEOData(article),
-      source: 'fallback_template',
-      reason: 'API unavailable or failed'
+      source: "fallback_template",
+      reason: "API unavailable or failed",
     }
   }
 
   generateSEOData(article) {
-    const title = article.title || 'Trending News'
-    const excerpt = article.excerpt || article.description || 'Latest trending news and updates'
-    const tags = Array.isArray(article.tags) ? article.tags : ['technology', 'news']
+    const title = article.title || "Trending News"
+    const excerpt = article.excerpt || article.description || "Latest trending news and updates"
+    const tags = Array.isArray(article.tags) ? article.tags : ["technology", "news"]
 
     return {
-      metaTitle: title.length > 60 ? title.substring(0, 57) + '...' : title,
-      metaDescription: excerpt.length > 160 ? excerpt.substring(0, 157) + '...' : excerpt,
-      keywords: tags.join(', '),
+      metaTitle: title.length > 60 ? title.substring(0, 57) + "..." : title,
+      metaDescription: excerpt.length > 160 ? excerpt.substring(0, 157) + "..." : excerpt,
+      keywords: tags.join(", "),
       ogTitle: title,
       ogDescription: excerpt.substring(0, 200),
       twitterTitle: title.substring(0, 70),
-      twitterDescription: excerpt.substring(0, 200)
+      twitterDescription: excerpt.substring(0, 200),
     }
   }
 
   async testConnection() {
-    console.log('🔧 [GROQ SERVICE] Testing connection...')
-    
+    console.log("🔧 [GROQ SERVICE] Testing connection...")
+
     if (!this.apiKey) {
-      console.log('⚠️ [GROQ SERVICE] No API key configured')
-      return { 
-        success: false, 
-        error: 'No API key configured',
-        fallbackAvailable: true
+      console.log("⚠️ [GROQ SERVICE] No API key configured")
+      return {
+        success: false,
+        error: "No API key configured",
+        fallbackAvailable: true,
       }
     }
 
     try {
-      console.log('📡 [GROQ SERVICE] Testing API connection...')
-      
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: this.model,
-        messages: [{ role: 'user', content: 'Hello, this is a connection test.' }],
-        max_tokens: 10
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 10000
-      })
+      console.log("📡 [GROQ SERVICE] Testing API connection...")
 
-      console.log('✅ [GROQ SERVICE] Connection test successful')
-      return { 
-        success: true, 
+      const response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          model: this.model,
+          messages: [{ role: "user", content: "Hello, this is a connection test." }],
+          max_tokens: 10,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 10000,
+        },
+      )
+
+      console.log("✅ [GROQ SERVICE] Connection test successful")
+      return {
+        success: true,
         model: this.model,
-        status: response.status
+        status: response.status,
       }
     } catch (error) {
-      console.error('❌ [GROQ SERVICE] Connection test failed:', error.message)
-      
-      let errorDetails = { error: error.message }
+      console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
+
+      const errorDetails = { error: error.message }
       if (error.response) {
         errorDetails.status = error.response.status
         errorDetails.statusText = error.response.statusText
       }
 
-      return { 
-        success: false, 
+      return {
+        success: false,
         fallbackAvailable: true,
-        ...errorDetails
+        ...errorDetails,
       }
     }
   }
@@ -342,8 +355,44 @@ As we continue to monitor these developments, it's clear that staying informed a
       model: this.model,
       baseUrl: this.baseUrl,
       timeout: this.requestTimeout,
-      maxRetries: this.maxRetries
+      maxRetries: this.maxRetries,
     }
+  }
+
+  generateExcerpt(content) {
+    // Remove markdown and get first 160 characters
+    const plainText = content.replace(/[#*`]/g, "").replace(/\n+/g, " ").trim()
+    return plainText.length > 160 ? plainText.substring(0, 157) + "..." : plainText
+  }
+
+  extractTags(title, description) {
+    const text = `${title} ${description}`.toLowerCase()
+    const commonTags = [
+      "technology",
+      "ai",
+      "business",
+      "innovation",
+      "news",
+      "trending",
+      "digital",
+      "future",
+      "market",
+      "analysis",
+      "breakthrough",
+      "development",
+    ]
+
+    const foundTags = commonTags.filter((tag) => text.includes(tag))
+
+    // Add title-based tags
+    const titleWords = title
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 4 && !["this", "that", "with", "from"].includes(word))
+
+    foundTags.push(...titleWords.slice(0, 3))
+
+    return [...new Set(foundTags)].slice(0, 6)
   }
 }
 
