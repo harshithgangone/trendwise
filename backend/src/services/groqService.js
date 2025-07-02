@@ -78,7 +78,7 @@ class GroqService {
           content: prompt
         }
       ],
-      max_tokens: responseFormat === 'json' ? 1000 : 2000,
+      max_tokens: responseFormat === 'json' ? 1000 : 4000, // Increased max tokens for better content
       temperature: 0.7,
       top_p: 0.9
     }
@@ -161,17 +161,18 @@ Article Details:
 - Brief Description: ${excerpt}
 
 Requirements:
-1. Write 800-1200 words of engaging, informative content
+1. Write 1000-1500 words of engaging, informative content
 2. Use proper markdown formatting with H2 and H3 headings
 3. Include an introduction, main content sections, and conclusion
 4. Make it SEO-friendly with natural keyword integration
 5. Write in a professional, engaging tone
 6. Include relevant insights and analysis
 7. Add practical takeaways for readers
+8. Include at least 5 subheadings for better structure
 
 Structure the article with:
 - Compelling introduction
-- 3-4 main sections with H2 headings
+- 4-5 main sections with H2 headings
 - Subsections with H3 headings where appropriate
 - Conclusion with key takeaways
 - Use bullet points and numbered lists where relevant

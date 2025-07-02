@@ -197,7 +197,8 @@ class GNewsService {
           lang: 'en',
           country: 'us',
           max: limit,
-          in: 'title,description'
+          in: 'title,description',
+          image: 'required' // Ensure articles have images
         },
         timeout: this.requestTimeout,
         headers: {

@@ -20,16 +20,16 @@ class TrendBot {
       errors: [],
     }
     this.config = {
-      // Changed from 6 hours to 5 minutes
-      interval: "*/5 * * * *", // Every 5 minutes
-      maxArticlesPerRun: 3, // Reduced from 5 to 3 since running more frequently
+      // Changed from 10 minutes to 10 minutes
+      interval: "*/10 * * * *", // Every 10 minutes
+      maxArticlesPerRun: 10, // Increased from 3 to 10 to process more articles
       retryAttempts: 3,
       retryDelay: 5000,
       categories: ["Technology", "Business", "Health", "Science", "Entertainment"],
       sources: ["google-trends", "reddit-hot"],
     }
 
-    console.log("🤖 [TrendBot] Initialized with 5-minute interval configuration")
+    console.log("🤖 [TrendBot] Initialized with 10-minute interval configuration")
     console.log(`🔧 [TrendBot] Config: ${JSON.stringify(this.config, null, 2)}`)
   }
 
@@ -62,8 +62,8 @@ class TrendBot {
       console.log("✅ [TrendBot] Successfully started and scheduled")
       console.log(`⏰ [TrendBot] Next run scheduled for: ${this.stats.nextRun}`)
 
-      // Run immediately on start (optional)
-      // setTimeout(() => this.runCycle(), 5000)
+      // Run immediately on start
+      setTimeout(() => this.runCycle(), 5000)
     } catch (error) {
       console.error("❌ [TrendBot] Failed to start:", error)
       this.isActive = false
