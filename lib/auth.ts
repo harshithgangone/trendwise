@@ -1,6 +1,5 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
-import User from "@/backend/src/models/User" // Import the User model from backend
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -13,59 +12,48 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account, profile }) {
       if (account?.provider === "google") {
         try {
-          // Connect to MongoDB if not already connected
-          if (User.db.readyState !== 1) {
-            require("@/backend/src/config/database") // Re-initialize DB connection if needed
-          }
+          // Save user to backend database
+          const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
-          let existingUser = await User.findOne({ email: user.email })
-
-          if (!existingUser) {
-            existingUser = await User.create({
+          const response = await fetch(`${backendUrl}/api/auth/google-signin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
               name: user.name,
               email: user.email,
               image: user.image,
               provider: account.provider,
               providerId: account.providerAccountId,
-            })
-            console.log("New user created:", existingUser.email)
+            }),
+          })
+
+          if (response.ok) {
+            const userData = await response.json()
+            console.log("✅ [AUTH] User saved to backend:", userData.email)
+            return true
           } else {
-            // Update user details if they've changed
-            existingUser.name = user.name
-            existingUser.image = user.image
-            await existingUser.save()
-            console.log("Existing user updated:", existingUser.email)
+            console.error("❌ [AUTH] Failed to save user to backend:", response.status)
+            return true // Still allow sign in even if backend fails
           }
-          return true
         } catch (error) {
-          console.error("Error saving user to DB:", error)
-          return false
+          console.error("❌ [AUTH] Error saving user to backend:", error)
+          return true // Still allow sign in even if backend fails
         }
       }
       return true
     },
     async session({ session, token }) {
-      // Add user ID from MongoDB to session
-      if (token.email) {
-        try {
-          if (User.db.readyState !== 1) {
-            require("@/backend/src/config/database")
-          }
-          const dbUser = await User.findOne({ email: token.email }).select("_id role")
-          if (dbUser) {
-            session.user.id = dbUser._id.toString()
-            session.user.role = dbUser.role
-          }
-        } catch (error) {
-          console.error("Error fetching user from DB for session:", error)
-        }
+      // Add user ID to session if available
+      if (token.sub) {
+        session.user.id = token.sub
       }
       return session
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id
-        token.role = (user as any).role // Cast to any to access role
       }
       return token
     },
@@ -73,7 +61,6 @@ export const authOptions: NextAuthOptions = {
       // Handle redirect after sign in
       const callbackUrl = new URL(url).searchParams.get("callbackUrl")
       if (callbackUrl) {
-        // Ensure the callback URL is from the same origin for security
         try {
           const callbackURL = new URL(callbackUrl, baseUrl)
           if (callbackURL.origin === baseUrl) {
@@ -87,7 +74,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
   pages: {
-    signIn: "/login", // Custom sign-in page
+    signIn: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET, // IMPORTANT: Set this in your .env.local
+  secret: process.env.NEXTAUTH_SECRET,
 }

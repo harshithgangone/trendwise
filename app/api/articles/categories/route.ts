@@ -1,32 +1,30 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 
-// Mark this route as dynamic since we might use query parameters
 export const dynamic = "force-dynamic"
 
-// Mock categories for fallback
 const mockCategories = [
-  { name: "Technology", count: 15, slug: "technology" },
-  { name: "AI", count: 8, slug: "ai" },
-  { name: "Healthcare", count: 6, slug: "healthcare" },
-  { name: "Climate", count: 4, slug: "climate" },
-  { name: "Work", count: 7, slug: "work" },
-  { name: "Culture", count: 5, slug: "culture" },
-  { name: "Environment", count: 3, slug: "environment" },
-  { name: "Sustainability", count: 4, slug: "sustainability" },
+  { name: "Technology", count: 25, slug: "technology" },
+  { name: "AI", count: 18, slug: "ai" },
+  { name: "Healthcare", count: 12, slug: "healthcare" },
+  { name: "Environment", count: 15, slug: "environment" },
+  { name: "Business", count: 20, slug: "business" },
+  { name: "Science", count: 8, slug: "science" },
+  { name: "Innovation", count: 10, slug: "innovation" },
+  { name: "Sustainability", count: 14, slug: "sustainability" },
+  { name: "Climate", count: 9, slug: "climate" },
+  { name: "Work", count: 11, slug: "work" },
 ]
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
+    console.log("📂 [FRONTEND API] Categories API called")
+
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
     try {
-      console.log("🔍 [FRONTEND API] Attempting to fetch categories from backend...")
+      console.log("🔗 [FRONTEND API] Attempting to fetch categories from backend:", backendUrl)
 
-      // Try the correct backend endpoint
-      const apiUrl = `${backendUrl}/api/articles/categories`
-      console.log("🔗 [FRONTEND API] Categories API URL:", apiUrl)
-
-      const response = await fetch(apiUrl, {
+      const response = await fetch(`${backendUrl}/api/articles/categories`, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -36,21 +34,34 @@ export async function GET(request: NextRequest) {
         signal: AbortSignal.timeout(10000),
       })
 
+      console.log(`📈 [FRONTEND API] Categories backend response status: ${response.status}`)
+
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [FRONTEND API] Successfully fetched ${data.length || 0} categories from database`)
+        console.log(`✅ [FRONTEND API] Successfully fetched categories from backend:`, data)
 
-        return NextResponse.json({
-          success: true,
-          categories: data,
-        })
+        // Handle different response formats
+        if (data.categories && Array.isArray(data.categories)) {
+          return NextResponse.json({
+            success: true,
+            categories: data.categories,
+          })
+        } else if (Array.isArray(data)) {
+          return NextResponse.json({
+            success: true,
+            categories: data,
+          })
+        } else {
+          throw new Error("Invalid categories response format")
+        }
       } else {
-        console.log(`⚠️ [FRONTEND API] Backend categories responded with status ${response.status}`)
+        const errorText = await response.text()
+        console.log(`⚠️ [FRONTEND API] Categories backend error: ${errorText}`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
       console.log(
-        "⚠️ [FRONTEND API] Backend categories not available, using mock data:",
+        "⚠️ [FRONTEND API] Categories backend not available, using mock data:",
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
 
@@ -60,7 +71,7 @@ export async function GET(request: NextRequest) {
       })
     }
   } catch (error) {
-    console.error("❌ [FRONTEND API] Error fetching categories:", error)
+    console.error("❌ [FRONTEND API] Critical error in categories API:", error)
 
     return NextResponse.json(
       {
