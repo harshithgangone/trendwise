@@ -70,6 +70,7 @@ class GroqService {
   async makeGroqRequest(prompt, responseFormat = 'text') {
     console.log('📡 [GROQ SERVICE] Making API request to Groq...')
     console.log(`📝 [GROQ SERVICE] Prompt summary: ${prompt.substring(0, 100)}...`)
+    console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
     
     const requestData = {
       model: this.model,
@@ -89,6 +90,7 @@ class GroqService {
     }
 
     console.log(`🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`)
+    console.log(`🔑 [GROQ SERVICE] API Key status: ${this.apiKey ? 'Present (valid)' : 'Missing'}`)
 
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
@@ -109,6 +111,7 @@ class GroqService {
         console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
         console.log(`⏱️ [GROQ SERVICE] Request duration: ${duration}ms`)
         console.log(`📊 [GROQ SERVICE] Usage: ${JSON.stringify(response.data.usage || {})}`)
+        console.log(`📊 [GROQ SERVICE] Tokens: Input=${response.data.usage?.prompt_tokens || 'unknown'}, Output=${response.data.usage?.completion_tokens || 'unknown'}, Total=${response.data.usage?.total_tokens || 'unknown'}`)
 
         if (response.data && response.data.choices && response.data.choices[0]) {
           const content = response.data.choices[0].message.content
@@ -119,9 +122,11 @@ class GroqService {
             try {
               const parsed = JSON.parse(content)
               console.log('✅ [GROQ SERVICE] JSON response parsed successfully')
+              console.log(`📊 [GROQ SERVICE] JSON keys: ${Object.keys(parsed).join(', ')}`)
               return parsed
             } catch (parseError) {
               console.error('❌ [GROQ SERVICE] JSON parsing failed:', parseError.message)
+              console.error(`📄 [GROQ SERVICE] Invalid JSON content: ${content.substring(0, 200)}...`)
               throw new Error('Invalid JSON response from API')
             }
           } else {
@@ -135,12 +140,18 @@ class GroqService {
         
         if (error.response) {
           console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
-          console.error(`📊 [GROQ SERVICE] API Error Data:`, error.response.data)
+          console.error(`📊 [GROQ SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
           
           // Don't retry on certain errors
           if (error.response.status === 401 || error.response.status === 403) {
+            console.error(`🔑 [GROQ SERVICE] Authentication error: ${error.response.status} - ${error.response.statusText}`)
             throw new Error('Authentication failed - check API key')
           }
+        } else if (error.request) {
+          console.error(`📡 [GROQ SERVICE] Network error: No response received`)
+          console.error(`📡 [GROQ SERVICE] Request details: ${JSON.stringify(error.request._currentUrl || {})}`)
+        } else {
+          console.error(`⚠️ [GROQ SERVICE] Error before request: ${error.message}`)
         }
 
         if (attempt === this.maxRetries) {

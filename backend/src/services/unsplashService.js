@@ -195,13 +195,16 @@ class UnsplashService {
       return { 
         success: false, 
         error: 'No access key configured',
-        fallbackAvailable: true
+        fallbackAvailable: true,
+        timestamp: new Date().toISOString()
       }
     }
 
     try {
       console.log('📡 [UNSPLASH SERVICE] Testing API connection...')
+      console.log(`🔑 [UNSPLASH SERVICE] Using access key: ${this.accessKey.substring(0, 4)}...${this.accessKey.substring(this.accessKey.length - 4)}`)
       
+      const startTime = Date.now()
       const response = await axios.get(`${this.baseUrl}/photos/random`, {
         params: {
           count: 1
@@ -212,19 +215,37 @@ class UnsplashService {
         },
         timeout: 5000
       })
+      const endTime = Date.now()
 
       console.log('✅ [UNSPLASH SERVICE] Connection test successful')
+      console.log(`⏱️ [UNSPLASH SERVICE] Response time: ${endTime - startTime}ms`)
       return { 
         success: true,
-        status: response.status
+        status: response.status,
+        responseTime: `${endTime - startTime}ms`,
+        timestamp: new Date().toISOString()
       }
     } catch (error) {
       console.error('❌ [UNSPLASH SERVICE] Connection test failed:', error.message)
       
-      let errorDetails = { error: error.message }
+      let errorDetails = { 
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }
+      
       if (error.response) {
         errorDetails.status = error.response.status
         errorDetails.statusText = error.response.statusText
+        console.error(`📊 [UNSPLASH SERVICE] API Error Status: ${error.response.status} - ${error.response.statusText}`)
+        console.error(`📊 [UNSPLASH SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
+        
+        if (error.response.status === 401) {
+          console.error('🔑 [UNSPLASH SERVICE] Authentication failed - check access key')
+          errorDetails.authError = true
+        }
+      } else if (error.request) {
+        console.error('📡 [UNSPLASH SERVICE] Network error - no response received')
+        errorDetails.networkError = true
       }
 
       return { 

@@ -32,14 +32,17 @@ class TrendCrawler {
 
   async crawlTrends() {
     console.log("🔍 [TrendCrawler] Starting trend crawling...")
+    console.log(`🔧 [TrendCrawler] Sources: ${JSON.stringify(this.sources.map(s => s.name))}`)
     this.stats.totalCrawls++
     this.stats.lastCrawl = new Date()
 
     const allTrends = []
+    const sourceResults = []
 
     for (const source of this.sources) {
       try {
         console.log(`📡 [TrendCrawler] Crawling ${source.name}...`)
+        console.log(`🔗 [TrendCrawler] Source URL: ${source.url}`)
 
         let trends = []
         if (source.type === "rss") {
@@ -48,6 +51,13 @@ class TrendCrawler {
           trends = await this.crawlReddit(source)
         }
 
+        sourceResults.push({
+          source: source.name,
+          success: trends.length > 0,
+          count: trends.length,
+          timestamp: new Date().toISOString()
+        })
+
         if (trends.length > 0) {
           allTrends.push(...trends)
           console.log(`✅ [TrendCrawler] Found ${trends.length} trends from ${source.name}`)
@@ -55,10 +65,20 @@ class TrendCrawler {
           console.log(`⚠️ [TrendCrawler] No trends found from ${source.name}`)
         }
       } catch (error) {
-        console.error(`❌ [TrendCrawler] Failed to crawl ${source.name}:`, error.message)
+        console.error(`❌ [TrendCrawler] Failed to crawl ${source.name}: ${error.message}`)
+        console.error(`🔍 [TrendCrawler] Error details: ${JSON.stringify(error.response?.data || {})}`)
         this.stats.errors++
+        sourceResults.push({
+          source: source.name,
+          success: false,
+          error: error.message,
+          status: error.response?.status,
+          timestamp: new Date().toISOString()
+        })
       }
     }
+
+    console.log(`📊 [TrendCrawler] Source results: ${JSON.stringify(sourceResults)}`)
 
     if (allTrends.length > 0) {
       this.stats.successfulCrawls++
@@ -69,7 +89,7 @@ class TrendCrawler {
       return {
         success: true,
         trends: allTrends,
-        source: "Multiple Sources",
+        sources: sourceResults,
         timestamp: new Date().toISOString(),
       }
     } else {
@@ -77,7 +97,9 @@ class TrendCrawler {
       return {
         success: false,
         error: "No trends found from any source",
+        sources: sourceResults,
         trends: [],
+        timestamp: new Date().toISOString()
       }
     }
   }
@@ -280,25 +302,64 @@ class TrendCrawler {
     try {
       console.log(`🏥 [TrendCrawler] Running health check...`)
 
-      const testUrl = this.sources[0].url
+      // Test with a more reliable URL for health check
+      const testUrl = "https://www.google.com" // Use a reliable URL instead of the actual source
+      console.log(`🔗 [TrendCrawler] Testing connection to: ${testUrl}`)
+      
+      const startTime = Date.now()
       const response = await axios.get(testUrl, {
         timeout: 5000,
         headers: {
           "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
         },
       })
+      const endTime = Date.now()
 
       const isHealthy = response.status === 200
+      const responseTime = endTime - startTime
 
       const healthStatus = {
         status: isHealthy ? "healthy" : "unhealthy",
         timestamp: new Date().toISOString(),
-        responseTime: response.headers["x-response-time"] || "unknown",
+        responseTime: `${responseTime}ms`,
         dataSize: response.data.length,
         lastCheck: new Date().toISOString(),
+        sourceStatus: []
+      }
+
+      // Also log individual source statuses but don't fail the whole check
+      for (const source of this.sources) {
+        try {
+          console.log(`🔗 [TrendCrawler] Testing source: ${source.name} (${source.url})`)
+          const sourceResponse = await axios.get(source.url, {
+            timeout: 5000,
+            headers: {
+              "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
+            },
+          })
+          
+          healthStatus.sourceStatus.push({
+            name: source.name,
+            url: source.url,
+            status: sourceResponse.status,
+            healthy: sourceResponse.status === 200,
+            timestamp: new Date().toISOString()
+          })
+        } catch (sourceError) {
+          console.log(`⚠️ [TrendCrawler] Source ${source.name} health check failed: ${sourceError.message}`)
+          healthStatus.sourceStatus.push({
+            name: source.name,
+            url: source.url,
+            status: sourceError.response?.status || 'unknown',
+            healthy: false,
+            error: sourceError.message,
+            timestamp: new Date().toISOString()
+          })
+        }
       }
 
       console.log(`${isHealthy ? "✅" : "❌"} [TrendCrawler] Health check ${healthStatus.status}`)
+      console.log(`📊 [TrendCrawler] Health details: ${JSON.stringify(healthStatus)}`)
       return healthStatus
     } catch (error) {
       console.error(`❌ [TrendCrawler] Health check failed:`, error.message)

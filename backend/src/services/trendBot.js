@@ -117,18 +117,27 @@ class TrendBot {
       // Step 2: Crawl for trending topics
       console.log("🕷️ [TrendBot] Crawling for trending topics...")
       // Use the imported instance directly
-      const trends = await TrendCrawler.crawlTrends()
-      console.log(`📊 [TrendBot] Found ${trends.length} trending topics`)
+      const crawlResult = await TrendCrawler.crawlTrends()
+      console.log(`📊 [TrendBot] Crawl result: ${JSON.stringify(crawlResult)}`)
+      
+      // Extract trends array from the result object
+      let trends = []
+      if (crawlResult && crawlResult.success && Array.isArray(crawlResult.trends)) {
+        trends = crawlResult.trends
+        console.log(`📊 [TrendBot] Found ${trends.length} trending topics`)
+      } else {
+        console.log(`⚠️ [TrendBot] No valid trends found in crawl result`)
+      }
 
       if (trends.length === 0) {
         console.log("⚠️ [TrendBot] No trends found, generating fallback content...")
         const fallbackTrends = this.generateFallbackTrends()
-        trends.push(...fallbackTrends)
-        console.log(`📊 [TrendBot] Added ${fallbackTrends.length} fallback trends`)
+        console.log(`📊 [TrendBot] Generated ${fallbackTrends.length} fallback trends`)
+        trends = fallbackTrends // Replace empty array instead of pushing
       }
 
       // Step 3: Process and filter trends
-      console.log("🔍 [TrendBot] Processing and filtering trends...")
+      console.log(`🔍 [TrendBot] Processing and filtering ${trends.length} trends...`)
       const processedTrends = await this.processTrends(trends)
       console.log(`✅ [TrendBot] Processed ${processedTrends.length} high-quality trends`)
 
@@ -196,28 +205,32 @@ class TrendBot {
 
     try {
       // Check TrendCrawler - use the imported instance directly
+      console.log("🏥 [TrendBot] Checking TrendCrawler health...")
       healthStatus.trendCrawler = await TrendCrawler.healthCheck()
-      console.log(`🕷️ [TrendBot] TrendCrawler health: ${healthStatus.trendCrawler ? "✅ Healthy" : "❌ Unhealthy"}`)
+      console.log(`🕷️ [TrendBot] TrendCrawler health: ${JSON.stringify(healthStatus.trendCrawler)}`)
     } catch (error) {
-      console.log("❌ [TrendBot] TrendCrawler health check failed:", error.message)
+      console.log(`❌ [TrendBot] TrendCrawler health check failed: ${error.message}`)
+      healthStatus.trendCrawler = { status: "unhealthy", error: error.message, timestamp: new Date().toISOString() }
     }
 
     try {
       // Check GroqService - use the imported instance directly
+      console.log("🏥 [TrendBot] Checking GroqService health...")
       healthStatus.groqService = await GroqService.testConnection()
-      console.log(`🤖 [TrendBot] GroqService health: ${healthStatus.groqService.success ? "✅ Healthy" : "❌ Unhealthy"}`)
+      console.log(`🤖 [TrendBot] GroqService health: ${JSON.stringify(healthStatus.groqService)}`)
     } catch (error) {
-      console.log("❌ [TrendBot] GroqService health check failed:", error.message)
+      console.log(`❌ [TrendBot] GroqService health check failed: ${error.message}`)
+      healthStatus.groqService = { success: false, error: error.message }
     }
 
     try {
       // Check UnsplashService - use the imported instance directly
+      console.log("🏥 [TrendBot] Checking UnsplashService health...")
       healthStatus.unsplashService = await UnsplashService.testConnection()
-      console.log(
-        `🖼️ [TrendBot] UnsplashService health: ${healthStatus.unsplashService.success ? "✅ Healthy" : "❌ Unhealthy"}`,
-      )
+      console.log(`🖼️ [TrendBot] UnsplashService health: ${JSON.stringify(healthStatus.unsplashService)}`)
     } catch (error) {
-      console.log("❌ [TrendBot] UnsplashService health check failed:", error.message)
+      console.log(`❌ [TrendBot] UnsplashService health check failed: ${error.message}`)
+      healthStatus.unsplashService = { success: false, error: error.message, fallbackAvailable: true }
     }
 
     try {
@@ -233,7 +246,12 @@ class TrendBot {
   }
 
   async processTrends(rawTrends) {
-    console.log(`🔍 [TrendBot] Processing ${rawTrends.length} raw trends...`)
+    console.log(`🔍 [TrendBot] Processing ${rawTrends ? rawTrends.length : 0} raw trends...`)
+    
+    if (!rawTrends || !Array.isArray(rawTrends) || rawTrends.length === 0) {
+      console.log("⚠️ [TrendBot] No valid trends to process, returning empty array")
+      return []
+    }
 
     // Remove duplicates
     const uniqueTrends = this.removeDuplicateTrends(rawTrends)
