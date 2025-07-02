@@ -6,85 +6,67 @@ async function commentsRoutes(fastify, options) {
     try {
       const { articleId } = request.params
       const { page = 1, limit = 10 } = request.query
-      const skip = (page - 1) * limit
 
-      const comments = await Comment.find({
-        articleId,
-        isApproved: true,
-      })
+      const comments = await Comment.find({ articleId })
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number.parseInt(limit))
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
         .populate("userId", "name picture")
+        .exec()
 
-      const total = await Comment.countDocuments({
-        articleId,
-        isApproved: true,
-      })
+      const total = await Comment.countDocuments({ articleId })
 
-      fastify.log.info(`💬 [COMMENTS] Fetched ${comments.length} comments for article ${articleId}`)
-
-      return {
+      reply.send({
         success: true,
         data: comments,
         pagination: {
-          page: Number.parseInt(page),
-          limit: Number.parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit),
+          currentPage: Number.parseInt(page),
+          totalPages: Math.ceil(total / limit),
+          totalComments: total,
         },
-      }
+      })
     } catch (error) {
-      fastify.log.error(`❌ [COMMENTS] Failed to fetch comments for article ${request.params.articleId}:`, error)
-
-      return {
-        success: true,
-        data: [],
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 0,
-          pages: 0,
-        },
-      }
+      fastify.log.error("Error fetching comments:", error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch comments",
+        message: error.message,
+      })
     }
   })
 
   // Create a new comment
   fastify.post("/", async (request, reply) => {
     try {
-      const { articleId, userId, content, author } = request.body
+      const { articleId, userId, content } = request.body
 
-      if (!articleId || !content || !author) {
+      if (!articleId || !userId || !content) {
         return reply.status(400).send({
           success: false,
           error: "Missing required fields",
         })
       }
 
-      const newComment = new Comment({
+      const comment = new Comment({
         articleId,
-        userId: userId || null,
+        userId,
         content,
-        author,
-        isApproved: true, // Auto-approve for now
         createdAt: new Date(),
       })
 
-      await newComment.save()
+      await comment.save()
+      await comment.populate("userId", "name picture")
 
-      fastify.log.info(`💬 [COMMENTS] New comment created for article ${articleId}`)
-
-      return {
+      reply.send({
         success: true,
-        data: newComment,
-      }
+        data: comment,
+      })
     } catch (error) {
-      fastify.log.error("❌ [COMMENTS] Failed to create comment:", error)
-
-      return reply.status(500).send({
+      fastify.log.error("Error creating comment:", error)
+      reply.status(500).send({
         success: false,
         error: "Failed to create comment",
+        message: error.message,
       })
     }
   })

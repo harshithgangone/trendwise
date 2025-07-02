@@ -1,19 +1,24 @@
+// Check if we're in production environment
+const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || !process.env.NODE_ENV
+
 const fastify = require("fastify")({
-  logger:
-    process.env.NODE_ENV === "production"
-      ? true
-      : {
-          level: "info",
-          transport: {
-            target: "pino-pretty",
-            options: {
-              colorize: true,
-              translateTime: "HH:MM:ss Z",
-              ignore: "pid,hostname",
-            },
+  logger: isProduction
+    ? {
+        level: "info",
+      }
+    : {
+        level: "info",
+        transport: {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            translateTime: "HH:MM:ss Z",
+            ignore: "pid,hostname",
           },
         },
+      },
 })
+
 const mongoose = require("mongoose")
 require("dotenv").config()
 
@@ -97,6 +102,7 @@ fastify.get("/health", async (request, reply) => {
       port: process.env.PORT || 3001,
       groqApiKey: !!process.env.GROQ_API_KEY,
       mongoUri: !!process.env.MONGODB_URI,
+      isProduction: isProduction,
     },
   }
 
@@ -130,6 +136,8 @@ fastify.get("/api/health/detailed", async (request, reply) => {
       port: process.env.PORT || 3001,
       hasGroqKey: !!process.env.GROQ_API_KEY,
       hasMongoUri: !!process.env.MONGODB_URI,
+      isProduction: isProduction,
+      renderEnv: process.env.RENDER || "false",
     },
   }
 
@@ -142,14 +150,14 @@ fastify.setErrorHandler((error, request, reply) => {
   fastify.log.error("❌ [SERVER] Error occurred:")
   fastify.log.error(`   URL: ${request.method} ${request.url}`)
   fastify.log.error(`   Error: ${error.message}`)
-  if (process.env.NODE_ENV === "development") {
+  if (!isProduction) {
     fastify.log.error(`   Stack: ${error.stack}`)
   }
 
   reply.status(500).send({
     success: false,
     error: "Internal Server Error",
-    message: process.env.NODE_ENV === "development" ? error.message : "Something went wrong",
+    message: !isProduction ? error.message : "Something went wrong",
   })
 })
 
@@ -191,6 +199,8 @@ const start = async () => {
   try {
     fastify.log.info("🚀 [SERVER] Starting TrendWise Backend Server...")
     fastify.log.info(`🌍 [SERVER] Environment: ${process.env.NODE_ENV || "development"}`)
+    fastify.log.info(`🌍 [SERVER] Is Production: ${isProduction}`)
+    fastify.log.info(`🌍 [SERVER] Render Environment: ${process.env.RENDER || "false"}`)
     fastify.log.info(`🔧 [SERVER] Node.js version: ${process.version}`)
     fastify.log.info(`🔑 [SERVER] Environment variables check:`)
     fastify.log.info(`   GROQ_API_KEY: ${process.env.GROQ_API_KEY ? "Present ✅" : "Missing ❌"}`)
@@ -207,7 +217,7 @@ const start = async () => {
 
     // Start the server
     const port = process.env.PORT || 3001
-    const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "localhost"
+    const host = isProduction ? "0.0.0.0" : "localhost"
 
     await fastify.listen({ port: Number.parseInt(port), host })
     fastify.log.info(`✅ [SERVER] Server running on http://${host}:${port}`)
