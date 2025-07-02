@@ -13,7 +13,7 @@ class GroqService {
     // Hardcode the API key for prototyping as requested
     this.apiKey = GROQ_API_KEY
     this.baseUrl = "https://api.groq.com/openai/v1"
-    this.model = "llama-3.1-8b-instant"
+    this.model = "llama-3.1-8b-instant" // Updated to use supported model
     this.requestTimeout = 30000 // 30 seconds
     this.maxRetries = 3
     this.rateLimitDelay = 2000 // 2 seconds between requests
@@ -551,7 +551,7 @@ Format your response as JSON:
           content: prompt,
         },
       ],
-      model: "llama-3.1-70b-versatile",
+      model: "llama-3.1-8b-instant", // Updated to use supported model
       temperature: 0.7,
       max_tokens: 4000,
       response_format: { type: "json_object" },
