@@ -7,10 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, Bookmark, Share2, Clock, Calendar, Eye, User } from "lucide-react"
-import { formatDateTime } from "@/lib/utils"
+import { Heart, Bookmark, Share2, Clock, Calendar, Eye, User, Twitter } from "lucide-react"
 import { useUserPreferences } from "@/hooks/use-user-preferences"
-import { toast } from "@/hooks/use-toast"
+import { toast } from "sonner"
 
 interface Article {
   _id: string
@@ -18,17 +17,16 @@ interface Article {
   content: string
   excerpt: string
   thumbnail: string
+  author: string
+  publishedAt: string
   tags: string[]
+  imageUrl?: string
   category: string
   readTime: number
   views: number
   likes: number
   saves: number
-  createdAt: string
-  source: {
-    name: string
-    url: string
-  }
+  tweets?: string[]
 }
 
 interface ArticleContentProps {
@@ -37,157 +35,113 @@ interface ArticleContentProps {
 
 export function ArticleContent({ article }: ArticleContentProps) {
   const { data: session } = useSession()
-  const { saveArticle, likeArticle, addToRecentlyViewed, isArticleSaved, isArticleLiked } = useUserPreferences()
-  const [localLikes, setLocalLikes] = useState(article.likes || 0)
-  const [localSaves, setLocalSaves] = useState(article.saves || 0)
-  const [isLiking, setIsLiking] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const { preferences, updatePreferences } = useUserPreferences()
+  const [isLiked, setIsLiked] = useState(false)
+  const [isSaved, setIsSaved] = useState(false)
+  const [likes, setLikes] = useState(article.likes || 0)
+  const [saves, setSaves] = useState(article.saves || 0)
+  const [views] = useState(article.views || 0)
+
+  useEffect(() => {
+    // Check if user has liked or saved this article
+    setIsLiked(preferences.likedArticles.includes(article._id))
+    setIsSaved(preferences.savedArticles.includes(article._id))
+
+    // Add to recently viewed
+    updatePreferences({
+      recentlyViewed: [article._id, ...preferences.recentlyViewed.filter((id) => id !== article._id)].slice(0, 10),
+    })
+  }, [article._id, preferences, updatePreferences])
 
   const handleLike = async () => {
     if (!session) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to like articles.",
-        variant: "destructive",
-      })
+      toast.error("Please sign in to like articles")
       return
     }
 
-    if (isLiking) return
-
-    setIsLiking(true)
     try {
-      // Update local state first for immediate feedback
-      const newLikedState = await likeArticle(article._id)
-
-      // Call backend API to update actual like count
+      const newLikedState = !isLiked
       const response = await fetch(`/api/articles/like/${article._id}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: session.user?.email,
-          action: newLikedState ? "like" : "unlike",
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ increment: newLikedState }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        setLocalLikes(data.likes)
-      }
+        setIsLiked(newLikedState)
+        setLikes(data.likes)
 
-      toast({
-        title: newLikedState ? "Article liked!" : "Like removed",
-        description: newLikedState ? "Added to your liked articles." : "Removed from your liked articles.",
-      })
+        // Update user preferences
+        const updatedLiked = newLikedState
+          ? [...preferences.likedArticles, article._id]
+          : preferences.likedArticles.filter((id) => id !== article._id)
+
+        updatePreferences({ likedArticles: updatedLiked })
+        toast.success(newLikedState ? "Article liked!" : "Article unliked!")
+      }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update like. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLiking(false)
+      console.error("Error liking article:", error)
+      toast.error("Failed to like article")
     }
   }
 
   const handleSave = async () => {
     if (!session) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to save articles.",
-        variant: "destructive",
-      })
+      toast.error("Please sign in to save articles")
       return
     }
 
-    if (isSaving) return
-
-    setIsSaving(true)
     try {
-      // Update local state first for immediate feedback
-      const newSavedState = await saveArticle(article._id)
-
-      // Call backend API to update actual save count
+      const newSavedState = !isSaved
       const response = await fetch(`/api/articles/save/${article._id}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: session.user?.email,
-          action: newSavedState ? "save" : "unsave",
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ increment: newSavedState }),
       })
 
       if (response.ok) {
         const data = await response.json()
-        setLocalSaves(data.saves)
-      }
+        setIsSaved(newSavedState)
+        setSaves(data.saves)
 
-      toast({
-        title: newSavedState ? "Article saved!" : "Save removed",
-        description: newSavedState ? "Added to your saved articles." : "Removed from your saved articles.",
-      })
+        // Update user preferences
+        const updatedSaved = newSavedState
+          ? [...preferences.savedArticles, article._id]
+          : preferences.savedArticles.filter((id) => id !== article._id)
+
+        updatePreferences({ savedArticles: updatedSaved })
+        toast.success(newSavedState ? "Article saved!" : "Article unsaved!")
+      }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update save. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsSaving(false)
+      console.error("Error saving article:", error)
+      toast.error("Failed to save article")
     }
   }
-
-  useEffect(() => {
-    // Track article view when component mounts
-    const trackView = async () => {
-      try {
-        await fetch(`/api/articles/view/${article._id}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            userId: session?.user?.email || "anonymous",
-          }),
-        })
-      } catch (error) {
-        console.error("Failed to track view:", error)
-      }
-    }
-
-    if (article._id) {
-      addToRecentlyViewed(article._id)
-      trackView()
-    }
-  }, [article._id, addToRecentlyViewed, session?.user?.email])
 
   const handleShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({
           title: article.title,
-          text: article.excerpt,
+          text: `Check out this article: ${article.title}`,
           url: window.location.href,
         })
       } catch (error) {
-        // User cancelled sharing
+        console.log("Error sharing:", error)
       }
     } else {
-      // Fallback to copying URL
-      await navigator.clipboard.writeText(window.location.href)
-      toast({
-        title: "Link copied!",
-        description: "Article link has been copied to your clipboard.",
-      })
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(window.location.href)
+      toast.success("Link copied to clipboard!")
     }
   }
 
-  const isLiked = session ? isArticleLiked(article._id) : false
-  const isSaved = session ? isArticleSaved(article._id) : false
+  const openTwitterSearch = () => {
+    const searchQuery = encodeURIComponent(article.title)
+    const twitterUrl = `https://twitter.com/search?q=${searchQuery}`
+    window.open(twitterUrl, "_blank")
+  }
 
   return (
     <motion.article
@@ -217,11 +171,11 @@ export function ArticleContent({ article }: ArticleContentProps) {
         <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500 mb-6">
           <div className="flex items-center">
             <User className="h-4 w-4 mr-2" />
-            <span>{article.source?.name || "TrendWise AI"}</span>
+            <span>{article.author}</span>
           </div>
           <div className="flex items-center">
             <Calendar className="h-4 w-4 mr-2" />
-            <span>{formatDateTime(article.createdAt)}</span>
+            <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
           </div>
           <div className="flex items-center">
             <Clock className="h-4 w-4 mr-2" />
@@ -229,7 +183,7 @@ export function ArticleContent({ article }: ArticleContentProps) {
           </div>
           <div className="flex items-center">
             <Eye className="h-4 w-4 mr-2" />
-            <span>{article.views?.toLocaleString() || 0} views</span>
+            <span>{views.toLocaleString()} views</span>
           </div>
         </div>
 
@@ -239,31 +193,59 @@ export function ArticleContent({ article }: ArticleContentProps) {
             variant={isLiked ? "default" : "outline"}
             size="sm"
             onClick={handleLike}
-            disabled={isLiking}
-            className={isLiked ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+            className="flex items-center space-x-2"
           >
-            <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
-            {localLikes.toLocaleString()}
+            <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
+            {likes.toLocaleString()}
           </Button>
 
           <Button
             variant={isSaved ? "default" : "outline"}
             size="sm"
             onClick={handleSave}
-            disabled={isSaving}
-            className={isSaved ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+            className="flex items-center space-x-2"
           >
-            <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
-            {localSaves.toLocaleString()}
+            <Bookmark className={`h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
+            {saves.toLocaleString()}
           </Button>
 
-          <Button variant="outline" size="sm" onClick={handleShare}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleShare}
+            className="flex items-center space-x-2 bg-transparent"
+          >
             <Share2 className="h-4 w-4 mr-2" />
             Share
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openTwitterSearch}
+            className="flex items-center space-x-2 bg-transparent"
+          >
+            <Twitter className="h-4 w-4 mr-2" />
+            View Real Tweets
           </Button>
         </div>
 
         <Separator />
+
+        {/* Article Image */}
+        {article.imageUrl && (
+          <div className="mb-8">
+            <img
+              src={article.imageUrl || "/placeholder.svg"}
+              alt={article.title}
+              className="w-full h-64 md:h-96 object-cover rounded-lg shadow-lg"
+              onError={(e) => {
+                console.log("Image failed to load:", article.imageUrl)
+                e.currentTarget.src = "/placeholder.svg?height=400&width=800"
+              }}
+            />
+          </div>
+        )}
       </header>
 
       {/* Article Content */}
@@ -294,7 +276,7 @@ export function ArticleContent({ article }: ArticleContentProps) {
               <AvatarFallback>TW</AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-medium text-gray-900">{article.source?.name || "TrendWise AI"}</p>
+              <p className="font-medium text-gray-900">{article.author}</p>
               <p className="text-sm text-gray-500">AI-powered content generation</p>
             </div>
           </div>
@@ -304,10 +286,9 @@ export function ArticleContent({ article }: ArticleContentProps) {
               variant={isLiked ? "default" : "outline"}
               size="sm"
               onClick={handleLike}
-              disabled={isLiking}
-              className={isLiked ? "bg-red-500 hover:bg-red-600 text-white" : ""}
+              className="flex items-center space-x-2"
             >
-              <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
+              <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
               Like
             </Button>
 
@@ -315,15 +296,28 @@ export function ArticleContent({ article }: ArticleContentProps) {
               variant={isSaved ? "default" : "outline"}
               size="sm"
               onClick={handleSave}
-              disabled={isSaving}
-              className={isSaved ? "bg-blue-500 hover:bg-blue-600 text-white" : ""}
+              className="flex items-center space-x-2"
             >
-              <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
+              <Bookmark className={`h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
               Save
             </Button>
           </div>
         </div>
       </footer>
+
+      {/* AI Generated Tweets */}
+      {article.tweets && article.tweets.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xl font-semibold mb-4">Related Tweets</h3>
+          <div className="space-y-3">
+            {article.tweets.map((tweet, index) => (
+              <div key={index} className="bg-muted/50 p-4 rounded-lg border">
+                <p className="text-sm">{tweet}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </motion.article>
   )
 }

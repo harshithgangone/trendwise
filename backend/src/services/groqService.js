@@ -1,4 +1,5 @@
 const axios = require("axios")
+const Groq = require("groq-sdk")
 
 class GroqService {
   constructor() {
@@ -7,6 +8,13 @@ class GroqService {
     this.model = "llama3-8b-8192" // Fast and efficient model
     this.requestTimeout = 30000 // 30 seconds
     this.maxRetries = 2
+    this.client = new Groq({
+      apiKey: this.apiKey,
+    })
+
+    if (!this.apiKey) {
+      console.warn("⚠️ [GROQ] API key not found. Set GROQ_API_KEY environment variable.")
+    }
   }
 
   async generateArticleContent(article) {

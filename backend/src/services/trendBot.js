@@ -391,7 +391,7 @@ class TrendBot {
       }
 
       console.log(`🐦 [TrendBot] Generating tweets for: "${trend.title?.substring(0, 30)}..."`)
-      const tweets = await TweetScraper.generateTweetContent(trend.title, 5)
+      const tweets = await GroqService.generateTweetContent(trend.title, 5)
 
       const articleData = {
         title: trend.title,

@@ -10,6 +10,10 @@ class GNewsService {
     this.requestTimeout = 10000 // 10 seconds
     this.maxRetries = 2
     console.log("🔗 GNews Service initialized")
+
+    if (!this.apiKey) {
+      console.warn("⚠️ [GNEWS] API key not found. Set GNEWS_API_KEY environment variable.")
+    }
   }
 
   // Generate a proper slug from title
@@ -454,6 +458,151 @@ class GNewsService {
     } catch (error) {
       console.error("❌ [GNEWS SERVICE] Connection test failed:", error.message)
       return { api: false, scraping: false, error: error.message }
+    }
+  }
+
+  async getTopHeadlines(options = {}) {
+    if (!this.apiKey) {
+      console.error("❌ [GNEWS] API key not configured")
+      return { articles: [] }
+    }
+
+    try {
+      const {
+        category = "general",
+        country = "us",
+        lang = "en",
+        max = 50, // Increased from 3 to get more articles
+        q = null,
+      } = options
+
+      console.log(`📰 [GNEWS] Fetching news - Category: ${category}, Max: ${max}`)
+
+      const params = {
+        apikey: this.apiKey,
+        category,
+        country,
+        lang,
+        max,
+        sortby: "publishedAt",
+      }
+
+      if (q) {
+        params.q = q
+        delete params.category // Remove category when searching
+      }
+
+      const response = await axios.get(`${this.baseURL}/top-headlines`, {
+        params,
+        timeout: 30000,
+      })
+
+      if (response.data && response.data.articles) {
+        console.log(`✅ [GNEWS] Successfully fetched ${response.data.articles.length} articles`)
+
+        // Log image availability
+        const articlesWithImages = response.data.articles.filter((article) => article.image)
+        console.log(`🖼️ [GNEWS] ${articlesWithImages.length}/${response.data.articles.length} articles have images`)
+
+        return {
+          articles: response.data.articles.map((article) => ({
+            ...article,
+            // Ensure image URL is properly formatted
+            image: article.image || null,
+            // Add source information
+            source: article.source || { name: "Unknown", url: "" },
+          })),
+          totalArticles: response.data.totalArticles || response.data.articles.length,
+        }
+      }
+
+      console.warn("⚠️ [GNEWS] No articles in response")
+      return { articles: [] }
+    } catch (error) {
+      console.error("❌ [GNEWS] Error fetching news:", error.message)
+
+      if (error.response) {
+        console.error("❌ [GNEWS] API Error:", error.response.status, error.response.data)
+      }
+
+      return { articles: [] }
+    }
+  }
+
+  async searchNews(query, options = {}) {
+    return this.getTopHeadlines({
+      ...options,
+      q: query,
+      max: options.max || 20,
+    })
+  }
+
+  async getNewsByCategory(category, options = {}) {
+    const validCategories = [
+      "general",
+      "world",
+      "nation",
+      "business",
+      "technology",
+      "entertainment",
+      "sports",
+      "science",
+      "health",
+    ]
+
+    if (!validCategories.includes(category)) {
+      console.warn(`⚠️ [GNEWS] Invalid category: ${category}. Using 'general'`)
+      category = "general"
+    }
+
+    return this.getTopHeadlines({
+      ...options,
+      category,
+      max: options.max || 30,
+    })
+  }
+
+  // Get diverse news from multiple categories
+  async getDiverseNews(options = {}) {
+    const categories = ["general", "technology", "business", "health", "science", "entertainment"]
+    const articlesPerCategory = Math.ceil((options.max || 50) / categories.length)
+
+    console.log(`🌐 [GNEWS] Fetching diverse news from ${categories.length} categories`)
+
+    try {
+      const promises = categories.map((category) =>
+        this.getNewsByCategory(category, {
+          ...options,
+          max: articlesPerCategory,
+        }),
+      )
+
+      const results = await Promise.allSettled(promises)
+      const allArticles = []
+
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled" && result.value.articles) {
+          console.log(`✅ [GNEWS] ${categories[index]}: ${result.value.articles.length} articles`)
+          allArticles.push(...result.value.articles)
+        } else {
+          console.warn(`⚠️ [GNEWS] Failed to fetch ${categories[index]} news`)
+        }
+      })
+
+      // Remove duplicates based on URL
+      const uniqueArticles = allArticles.filter(
+        (article, index, self) => index === self.findIndex((a) => a.url === article.url),
+      )
+
+      console.log(`🎯 [GNEWS] Total unique articles: ${uniqueArticles.length}`)
+
+      return {
+        articles: uniqueArticles.slice(0, options.max || 50),
+        totalArticles: uniqueArticles.length,
+      }
+    } catch (error) {
+      console.error("❌ [GNEWS] Error fetching diverse news:", error.message)
+      return { articles: [] }
     }
   }
 }
