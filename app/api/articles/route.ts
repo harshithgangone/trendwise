@@ -49,13 +49,15 @@ const mockArticles = [
   },
 ]
 
+export const dynamic = "force-dynamic"
+
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const page = searchParams.get("page") || "1"
-    const limit = searchParams.get("limit") || "10"
-    const search = searchParams.get("search") || ""
-    const tag = searchParams.get("tag") || ""
+    const url = new URL(request.url)
+    const page = url.searchParams.get("page") || "1"
+    const limit = url.searchParams.get("limit") || "10"
+    const search = url.searchParams.get("search") || ""
+    const tag = url.searchParams.get("tag") || ""
 
     // Try to fetch from backend first
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
@@ -71,6 +73,7 @@ export async function GET(request: NextRequest) {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
+        cache: "no-store",
         // Add timeout to prevent hanging
         signal: AbortSignal.timeout(10000),
       })

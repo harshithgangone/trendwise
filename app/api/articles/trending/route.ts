@@ -57,6 +57,8 @@ const mockTrendingArticles = [
   },
 ]
 
+export const dynamic = "force-dynamic"
+
 export async function GET() {
   try {
     // Try to fetch from backend first
@@ -73,6 +75,7 @@ export async function GET() {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
+        cache: "no-store",
         signal: AbortSignal.timeout(10000),
       })
 

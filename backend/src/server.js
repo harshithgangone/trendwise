@@ -1,174 +1,171 @@
 const fastify = require("fastify")({ logger: true })
 const mongoose = require("mongoose")
-const path = require("path")
+require("dotenv").config()
 
 // Import services
 const trendBot = require("./services/trendBot")
 
-// Environment variables
-require("dotenv").config()
-
-const PORT = process.env.PORT || 3001
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise"
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000"
-
-console.log("🚀 [Server] Starting TrendWise Backend Server...")
-console.log("🔧 [Server] Configuration:")
-console.log(`   - Port: ${PORT}`)
-console.log(`   - MongoDB URI: ${MONGODB_URI.replace(/\/\/.*@/, "//***:***@")}`)
-console.log(`   - Frontend URL: ${FRONTEND_URL}`)
+// Import routes
+const articlesRoutes = require("./routes/articles")
+const adminRoutes = require("./routes/admin")
+const commentsRoutes = require("./routes/comments")
+const trendsRoutes = require("./routes/trends")
 
 // Register plugins
-async function registerPlugins() {
-  try {
-    // CORS configuration
-    await fastify.register(require("@fastify/cors"), {
-      origin: [FRONTEND_URL, "http://localhost:3000", "https://trendwise-frontend.vercel.app"],
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    })
+fastify.register(require("@fastify/cors"), {
+  origin: [
+    "http://localhost:3000",
+    "https://trendwise-frontend.vercel.app",
+    "https://trendwise.vercel.app",
+    /\.vercel\.app$/,
+  ],
+  credentials: true,
+})
 
-    // Security headers
-    await fastify.register(require("@fastify/helmet"), {
-      contentSecurityPolicy: false, // Disable CSP for API
-    })
+fastify.register(require("@fastify/helmet"), {
+  contentSecurityPolicy: false,
+})
 
-    console.log("✅ [Server] Plugins registered successfully")
-  } catch (error) {
-    console.error("❌ [Server] Failed to register plugins:", error.message)
-    throw error
-  }
-}
-
-// Connect to MongoDB
+// Database connection
 async function connectDatabase() {
   try {
     console.log("🗄️ [Database] Connecting to MongoDB...")
-    await mongoose.connect(MONGODB_URI, {
+    await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise", {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     })
     console.log("✅ [Database] Connected to MongoDB successfully")
   } catch (error) {
-    console.error("❌ [Database] Failed to connect to MongoDB:", error.message)
-    throw error
+    console.error("❌ [Database] Connection failed:", error)
+    process.exit(1)
   }
 }
 
 // Register routes
-async function registerRoutes() {
-  try {
-    console.log("🛣️ [Server] Registering routes...")
+fastify.register(articlesRoutes, { prefix: "/api/articles" })
+fastify.register(adminRoutes, { prefix: "/api/admin" })
+fastify.register(commentsRoutes, { prefix: "/api/comments" })
+fastify.register(trendsRoutes, { prefix: "/api/trends" })
 
-    // Health check endpoint
-    fastify.get("/health", async (request, reply) => {
-      return {
-        status: "OK",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        environment: process.env.NODE_ENV || "development",
-      }
-    })
-
-    // API routes
-    await fastify.register(require("./routes/articles"), { prefix: "/api" })
-    await fastify.register(require("./routes/admin"), { prefix: "/api" })
-    await fastify.register(require("./routes/comments"), { prefix: "/api" })
-    await fastify.register(require("./routes/trends"), { prefix: "/api" })
-
-    console.log("✅ [Server] Routes registered successfully")
-  } catch (error) {
-    console.error("❌ [Server] Failed to register routes:", error.message)
-    throw error
+// Health check endpoint
+fastify.get("/health", async (request, reply) => {
+  const health = {
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    bot: trendBot.getStatus(),
   }
-}
 
-// Start TrendBot
-async function startTrendBot() {
-  try {
-    console.log("🤖 [Server] Starting TrendBot...")
-    const result = await trendBot.start()
+  return health
+})
 
-    if (result.success) {
-      console.log("✅ [Server] TrendBot started successfully")
-      console.log(`⏰ [Server] Next run scheduled for: ${result.nextRun}`)
-    } else {
-      console.warn("⚠️ [Server] TrendBot failed to start:", result.message)
-    }
-  } catch (error) {
-    console.error("❌ [Server] Error starting TrendBot:", error.message)
-    // Don't throw error - server should still start even if bot fails
+// Detailed health check
+fastify.get("/api/health/detailed", async (request, reply) => {
+  const detailedHealth = {
+    server: {
+      status: "healthy",
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      nodeVersion: process.version,
+      platform: process.platform,
+    },
+    database: {
+      status: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+      host: mongoose.connection.host,
+      name: mongoose.connection.name,
+    },
+    bot: trendBot.getStatus(),
+    environment: {
+      nodeEnv: process.env.NODE_ENV || "development",
+      port: process.env.PORT || 3001,
+    },
   }
-}
+
+  return detailedHealth
+})
+
+// Error handler
+fastify.setErrorHandler((error, request, reply) => {
+  console.error("❌ [Server] Error:", error)
+  reply.status(500).send({
+    success: false,
+    error: "Internal Server Error",
+    message: process.env.NODE_ENV === "development" ? error.message : "Something went wrong",
+  })
+})
 
 // Graceful shutdown
-async function gracefulShutdown(signal) {
-  console.log(`\n🛑 [Server] Received ${signal}, shutting down gracefully...`)
+const gracefulShutdown = async (signal) => {
+  console.log(`🛑 [Server] Received ${signal}, shutting down gracefully...`)
 
   try {
-    // Stop TrendBot
-    if (trendBot.isActive) {
+    // Stop the trend bot
+    if (trendBot && trendBot.isActive) {
       console.log("🤖 [Server] Stopping TrendBot...")
-      await trendBot.stop()
+      trendBot.stop()
     }
 
     // Close database connection
-    console.log("🗄️ [Server] Closing database connection...")
-    await mongoose.connection.close()
+    if (mongoose.connection.readyState === 1) {
+      console.log("🗄️ [Server] Closing database connection...")
+      await mongoose.connection.close()
+    }
 
-    // Close Fastify server
-    console.log("🚪 [Server] Closing server...")
+    // Close fastify server
+    console.log("🚀 [Server] Closing HTTP server...")
     await fastify.close()
 
     console.log("✅ [Server] Graceful shutdown completed")
     process.exit(0)
   } catch (error) {
-    console.error("❌ [Server] Error during shutdown:", error.message)
+    console.error("❌ [Server] Error during shutdown:", error)
     process.exit(1)
   }
 }
 
-// Main server startup function
-async function startServer() {
-  try {
-    // Register plugins
-    await registerPlugins()
-
-    // Connect to database
-    await connectDatabase()
-
-    // Register routes
-    await registerRoutes()
-
-    // Start the server
-    await fastify.listen({
-      port: PORT,
-      host: "0.0.0.0",
-    })
-
-    console.log(`✅ [Server] Server running on http://0.0.0.0:${PORT}`)
-    console.log(`🌐 [Server] Health check: http://0.0.0.0:${PORT}/health`)
-
-    // Start TrendBot after server is running
-    setTimeout(async () => {
-      await startTrendBot()
-    }, 2000) // Wait 2 seconds for server to fully initialize
-  } catch (error) {
-    console.error("❌ [Server] Failed to start server:", error.message)
-    console.error("🔍 [Server] Error stack:", error.stack)
-    process.exit(1)
-  }
-}
-
-// Handle process signals for graceful shutdown
+// Register shutdown handlers
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
 process.on("SIGINT", () => gracefulShutdown("SIGINT"))
 
+// Start server
+const start = async () => {
+  try {
+    console.log("🚀 [Server] Starting TrendWise Backend Server...")
+    console.log(`🌍 [Server] Environment: ${process.env.NODE_ENV || "development"}`)
+    console.log(`🔧 [Server] Node.js version: ${process.version}`)
+
+    // Connect to database first
+    await connectDatabase()
+
+    // Start the server
+    const port = process.env.PORT || 3001
+    const host = process.env.NODE_ENV === "production" ? "0.0.0.0" : "localhost"
+
+    await fastify.listen({ port: Number.parseInt(port), host })
+    console.log(`✅ [Server] Server running on http://${host}:${port}`)
+
+    // Start TrendBot after server is running
+    console.log("🤖 [Server] Starting TrendBot...")
+    try {
+      trendBot.start()
+      console.log("✅ [Server] TrendBot started successfully")
+    } catch (botError) {
+      console.error("❌ [Server] Failed to start TrendBot:", botError)
+      // Don't exit - server can run without bot
+    }
+
+    console.log("🎉 [Server] All systems operational!")
+  } catch (error) {
+    console.error("❌ [Server] Failed to start:", error)
+    process.exit(1)
+  }
+}
+
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {
-  console.error("❌ [Server] Uncaught Exception:", error.message)
-  console.error("🔍 [Server] Error stack:", error.stack)
+  console.error("❌ [Server] Uncaught Exception:", error)
   gracefulShutdown("UNCAUGHT_EXCEPTION")
 })
 
@@ -177,5 +174,5 @@ process.on("unhandledRejection", (reason, promise) => {
   gracefulShutdown("UNHANDLED_REJECTION")
 })
 
-// Start the server
-startServer()
+// Start the application
+start()
