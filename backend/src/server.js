@@ -1,37 +1,55 @@
 const fastify = require("fastify")
 
-// Determine if we're in production
-const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || !process.env.NODE_ENV
+// Determine if in production environment
+const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true"
 
-// Create Fastify instance with proper logger configuration
+// Initialize Fastify with conditional logger
 const app = fastify({
   logger: isProduction
-    ? { level: "info" } // Simple JSON logging for production
+    ? { level: "info" } // Simple logger for production
     : {
         transport: {
           target: "pino-pretty",
           options: {
             colorize: true,
+            ignore: "pid,hostname",
           },
         },
       },
 })
 
-// Import services
-const connectDB = require("./config/database")
-const { startTrendBot } = require("./services/trendBot")
-
-// CORS configuration
+// Register CORS plugin
 app.register(require("@fastify/cors"), {
   origin: [
     "http://localhost:3000",
     "https://trendwise-frontend.vercel.app",
-    "https://trendwise-frontend-git-main-your-username.vercel.app",
+    "https://trendwise.vercel.app",
     /\.vercel\.app$/,
   ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 })
+
+// Connect to MongoDB
+const connectDB = async () => {
+  try {
+    const mongoose = require("mongoose")
+    await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise")
+    app.log.info("✅ [DATABASE] MongoDB Connected")
+    return true
+  } catch (error) {
+    app.log.error("❌ [DATABASE] MongoDB Connection Failed:", error)
+    return false
+  }
+}
+
+// Register routes
+app.register(require("./routes/articles"), { prefix: "/api" })
+app.register(require("./routes/admin"), { prefix: "/api" })
+app.register(require("./routes/auth"), { prefix: "/api" })
+app.register(require("./routes/comments"), { prefix: "/api" })
+app.register(require("./routes/trends"), { prefix: "/api" })
 
 // Health check routes
 app.get("/", async (request, reply) => {
@@ -53,51 +71,24 @@ app.get("/health", async (request, reply) => {
   }
 })
 
-app.get("/api/health/detailed", async (request, reply) => {
-  const mongoose = require("mongoose")
-
-  return {
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    services: {
-      database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-      groq: process.env.GROQ_API_KEY ? "configured" : "not configured",
-      gnews: process.env.GNEWS_API_KEY ? "configured" : "not configured",
-    },
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || "development",
-  }
-})
-
-// Register API routes
-app.register(require("./routes/articles"), { prefix: "/api" })
-app.register(require("./routes/auth"), { prefix: "/api" })
-app.register(require("./routes/admin"), { prefix: "/api" })
-app.register(require("./routes/comments"), { prefix: "/api" })
-app.register(require("./routes/trends"), { prefix: "/api" })
-
-// Start server
+// Start the server
 const start = async () => {
   try {
     // Connect to database
     await connectDB()
-    app.log.info("✅ Database connected successfully")
 
     // Start the server
     const port = process.env.PORT || 3001
-    const host = isProduction ? "0.0.0.0" : "localhost"
+    const host = "0.0.0.0"
 
     await app.listen({ port: Number.parseInt(port), host })
     app.log.info(`🚀 Server running on ${host}:${port}`)
 
-    // Start TrendBot after server is running
-    if (process.env.GROQ_API_KEY) {
-      app.log.info("🤖 Starting TrendBot...")
-      await startTrendBot()
-      app.log.info("✅ TrendBot started successfully")
-    } else {
-      app.log.warn("⚠️ GROQ_API_KEY not found, TrendBot disabled")
+    // Start TrendBot
+    const trendBot = require("./services/trendBot")
+    if (trendBot && trendBot.start) {
+      trendBot.start()
+      app.log.info("✅ TrendBot started")
     }
   } catch (err) {
     app.log.error("❌ Error starting server:", err)

@@ -1,8 +1,8 @@
-const Groq = require("groq-sdk")
+const { Groq } = require("groq-sdk")
 
 class GroqService {
   constructor() {
-    this.groq = null
+    this.client = null
     this.isHealthy = false
     this.lastHealthCheck = null
     this.init()
@@ -11,11 +11,11 @@ class GroqService {
   init() {
     try {
       if (!process.env.GROQ_API_KEY) {
-        console.warn("⚠️ GROQ_API_KEY not found, GroqService will use fallback content")
+        console.warn("⚠️ [GROQ] API key not found, service will be disabled")
         return
       }
 
-      this.groq = new Groq({
+      this.client = new Groq({
         apiKey: process.env.GROQ_API_KEY,
       })
 
@@ -27,13 +27,12 @@ class GroqService {
 
   async healthCheck() {
     try {
-      if (!this.groq) {
+      if (!this.client) {
         this.isHealthy = false
         return false
       }
 
-      // Simple test to check if the service is working
-      const response = await this.groq.chat.completions.create({
+      const response = await this.client.chat.completions.create({
         messages: [{ role: "user", content: "Hello" }],
         model: "llama3-8b-8192",
         max_tokens: 10,
@@ -50,7 +49,7 @@ class GroqService {
   }
 
   async generateArticle(topic, category = "Technology") {
-    if (!this.groq) {
+    if (!this.client) {
       console.log("🔄 [GROQ] Using fallback content generation...")
       return this.generateFallbackArticle(topic, category)
     }
@@ -78,7 +77,7 @@ Format the response as a JSON object with these fields:
   "readTime": estimated_read_time_in_minutes
 }`
 
-      const completion = await this.groq.chat.completions.create({
+      const completion = await this.client.chat.completions.create({
         messages: [
           {
             role: "system",
@@ -120,7 +119,7 @@ Format the response as a JSON object with these fields:
         thumbnail: `/placeholder.svg?height=400&width=600`,
         author: "TrendBot AI",
         status: "published",
-        featured: Math.random() > 0.7, // 30% chance of being featured
+        featured: Math.random() > 0.7,
         views: Math.floor(Math.random() * 1000) + 100,
         likes: Math.floor(Math.random() * 50) + 10,
         saves: Math.floor(Math.random() * 20) + 5,
@@ -189,28 +188,9 @@ ${topic} represents a significant shift in the ${category.toLowerCase()} sector,
     }
   }
 
-  async generateMultipleArticles(topics) {
-    console.log(`🤖 [GROQ] Generating ${topics.length} articles...`)
-
-    const articles = []
-    const categories = ["Technology", "Business", "Science", "Healthcare", "Environment"]
-
-    for (const topic of topics) {
-      const category = categories[Math.floor(Math.random() * categories.length)]
-      const article = await this.generateArticle(topic, category)
-      articles.push(article)
-
-      // Add delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-    }
-
-    console.log(`✅ [GROQ] Generated ${articles.length} articles successfully`)
-    return articles
-  }
-
   getStatus() {
     return {
-      initialized: !!this.groq,
+      initialized: !!this.client,
       healthy: this.isHealthy,
       lastHealthCheck: this.lastHealthCheck,
       hasApiKey: !!process.env.GROQ_API_KEY,

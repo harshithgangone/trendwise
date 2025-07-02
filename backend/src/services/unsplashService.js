@@ -1,39 +1,40 @@
-const axios = require('axios')
+const axios = require("axios")
+const fetch = require("node-fetch")
 
 class UnsplashService {
   constructor() {
     this.accessKey = process.env.UNSPLASH_ACCESS_KEY
-    this.baseUrl = 'https://api.unsplash.com'
+    this.baseUrl = "https://api.unsplash.com"
     this.requestTimeout = 10000
     this.maxRetries = 2
   }
 
   async searchImages(query, count = 3) {
-    console.log('🖼️ [UNSPLASH SERVICE] Starting image search...')
+    console.log("🖼️ [UNSPLASH SERVICE] Starting image search...")
     console.log(`🔍 [UNSPLASH SERVICE] Query: "${query}", Count: ${count}`)
-    console.log(`🔑 [UNSPLASH SERVICE] Access Key: ${this.accessKey ? 'Present' : 'Missing'}`)
+    console.log(`🔑 [UNSPLASH SERVICE] Access Key: ${this.accessKey ? "Present" : "Missing"}`)
 
     if (!this.accessKey) {
-      console.log('⚠️ [UNSPLASH SERVICE] No access key, using placeholder images')
+      console.log("⚠️ [UNSPLASH SERVICE] No access key, using placeholder images")
       return this.generatePlaceholderImages(query, count)
     }
 
     try {
-      console.log('📡 [UNSPLASH SERVICE] Making API request...')
-      
+      console.log("📡 [UNSPLASH SERVICE] Making API request...")
+
       const response = await axios.get(`${this.baseUrl}/search/photos`, {
         params: {
           query: query,
           per_page: count,
-          orientation: 'landscape',
-          content_filter: 'high',
-          order_by: 'relevant'
+          orientation: "landscape",
+          content_filter: "high",
+          order_by: "relevant",
         },
         headers: {
-          'Authorization': `Client-ID ${this.accessKey}`,
-          'Accept-Version': 'v1'
+          Authorization: `Client-ID ${this.accessKey}`,
+          "Accept-Version": "v1",
         },
-        timeout: this.requestTimeout
+        timeout: this.requestTimeout,
       })
 
       console.log(`📈 [UNSPLASH SERVICE] API Response Status: ${response.status}`)
@@ -42,7 +43,7 @@ class UnsplashService {
       if (response.data && response.data.results && response.data.results.length > 0) {
         const images = response.data.results.map((photo, index) => {
           console.log(`🖼️ [UNSPLASH SERVICE] Processing image ${index + 1}: ${photo.id}`)
-          
+
           return {
             id: photo.id,
             url: photo.urls.regular,
@@ -53,12 +54,12 @@ class UnsplashService {
             photographer: {
               name: photo.user.name,
               username: photo.user.username,
-              profile: photo.user.links.html
+              profile: photo.user.links.html,
             },
             downloadUrl: photo.links.download,
             unsplashUrl: photo.links.html,
             color: photo.color,
-            likes: photo.likes
+            likes: photo.likes,
           }
         })
 
@@ -66,35 +67,67 @@ class UnsplashService {
         return images
       }
 
-      console.log('⚠️ [UNSPLASH SERVICE] No images found, using placeholders')
+      console.log("⚠️ [UNSPLASH SERVICE] No images found, using placeholders")
       return this.generatePlaceholderImages(query, count)
     } catch (error) {
-      console.error('❌ [UNSPLASH SERVICE] Image search failed:', error.message)
-      
+      console.error("❌ [UNSPLASH SERVICE] Image search failed:", error.message)
+
       if (error.response) {
         console.error(`📊 [UNSPLASH SERVICE] API Error Status: ${error.response.status}`)
         console.error(`📊 [UNSPLASH SERVICE] API Error Data:`, error.response.data)
       }
 
-      console.log('🔄 [UNSPLASH SERVICE] Falling back to placeholder images')
+      console.log("🔄 [UNSPLASH SERVICE] Falling back to placeholder images")
       return this.generatePlaceholderImages(query, count)
+    }
+  }
+
+  async searchPhotos(query, perPage = 10) {
+    if (!this.accessKey) {
+      console.warn("⚠️ [UNSPLASH] Access key not found, returning placeholder images")
+      return this.getPlaceholderImages(query, perPage)
+    }
+
+    try {
+      const response = await axios.get(`${this.baseUrl}/search/photos`, {
+        params: {
+          query,
+          per_page: perPage,
+          orientation: "landscape",
+        },
+        headers: {
+          Authorization: `Client-ID ${this.accessKey}`,
+        },
+      })
+
+      return response.data.results.map((photo) => ({
+        id: photo.id,
+        url: photo.urls.regular,
+        thumbnail: photo.urls.thumb,
+        description: photo.description || photo.alt_description,
+        author: photo.user.name,
+        authorUrl: photo.user.links.html,
+      }))
+    } catch (error) {
+      console.error("❌ [UNSPLASH] Error searching photos:", error.message)
+      return this.getPlaceholderImages(query, perPage)
     }
   }
 
   generatePlaceholderImages(query, count = 3) {
     console.log(`🎭 [UNSPLASH SERVICE] Generating ${count} placeholder images for "${query}"`)
-    
+
     const images = []
     const dimensions = [
       { width: 800, height: 600 },
       { width: 1200, height: 800 },
-      { width: 1000, height: 667 }
+      { width: 1000, height: 667 },
     ]
 
     for (let i = 0; i < count; i++) {
       const dim = dimensions[i % dimensions.length]
       const encodedQuery = encodeURIComponent(query)
-      
+
       images.push({
         id: `placeholder-${i + 1}-${Date.now()}`,
         url: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
@@ -103,15 +136,15 @@ class UnsplashService {
         width: dim.width,
         height: dim.height,
         photographer: {
-          name: 'TrendWise',
-          username: 'trendwise',
-          profile: 'https://trendwise.com'
+          name: "TrendWise",
+          username: "trendwise",
+          profile: "https://trendwise.com",
         },
         downloadUrl: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
-        unsplashUrl: 'https://unsplash.com',
-        color: '#6366f1',
+        unsplashUrl: "https://unsplash.com",
+        color: "#6366f1",
         likes: Math.floor(Math.random() * 100) + 10,
-        isPlaceholder: true
+        isPlaceholder: true,
       })
     }
 
@@ -119,30 +152,45 @@ class UnsplashService {
     return images
   }
 
+  getPlaceholderImages(query, count) {
+    const images = []
+    for (let i = 0; i < count; i++) {
+      images.push({
+        id: `placeholder-${i}`,
+        url: `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(query)}`,
+        thumbnail: `/placeholder.svg?height=200&width=300&text=${encodeURIComponent(query)}`,
+        description: `Placeholder image for ${query}`,
+        author: "Placeholder",
+        authorUrl: "#",
+      })
+    }
+    return images
+  }
+
   async getRandomImages(count = 5) {
-    console.log('🎲 [UNSPLASH SERVICE] Fetching random images...')
+    console.log("🎲 [UNSPLASH SERVICE] Fetching random images...")
     console.log(`📊 [UNSPLASH SERVICE] Count: ${count}`)
 
     if (!this.accessKey) {
-      console.log('⚠️ [UNSPLASH SERVICE] No access key, using placeholder images')
-      return this.generatePlaceholderImages('random', count)
+      console.log("⚠️ [UNSPLASH SERVICE] No access key, using placeholder images")
+      return this.generatePlaceholderImages("random", count)
     }
 
     try {
-      console.log('📡 [UNSPLASH SERVICE] Making random images API request...')
-      
+      console.log("📡 [UNSPLASH SERVICE] Making random images API request...")
+
       const response = await axios.get(`${this.baseUrl}/photos/random`, {
         params: {
           count: count,
-          orientation: 'landscape',
-          content_filter: 'high',
-          topics: 'technology,business,nature'
+          orientation: "landscape",
+          content_filter: "high",
+          topics: "technology,business,nature",
         },
         headers: {
-          'Authorization': `Client-ID ${this.accessKey}`,
-          'Accept-Version': 'v1'
+          Authorization: `Client-ID ${this.accessKey}`,
+          "Accept-Version": "v1",
         },
-        timeout: this.requestTimeout
+        timeout: this.requestTimeout,
       })
 
       console.log(`📈 [UNSPLASH SERVICE] Random API Response Status: ${response.status}`)
@@ -152,93 +200,93 @@ class UnsplashService {
 
       const images = photos.map((photo, index) => {
         console.log(`🖼️ [UNSPLASH SERVICE] Processing random image ${index + 1}: ${photo.id}`)
-        
+
         return {
           id: photo.id,
           url: photo.urls.regular,
           thumbnail: photo.urls.small,
-          alt: photo.alt_description || photo.description || 'Random image',
+          alt: photo.alt_description || photo.description || "Random image",
           width: photo.width,
           height: photo.height,
           photographer: {
             name: photo.user.name,
             username: photo.user.username,
-            profile: photo.user.links.html
+            profile: photo.user.links.html,
           },
           downloadUrl: photo.links.download,
           unsplashUrl: photo.links.html,
           color: photo.color,
-          likes: photo.likes
+          likes: photo.likes,
         }
       })
 
       console.log(`✅ [UNSPLASH SERVICE] Successfully processed ${images.length} random images`)
       return images
     } catch (error) {
-      console.error('❌ [UNSPLASH SERVICE] Random images fetch failed:', error.message)
-      
+      console.error("❌ [UNSPLASH SERVICE] Random images fetch failed:", error.message)
+
       if (error.response) {
         console.error(`📊 [UNSPLASH SERVICE] API Error Status: ${error.response.status}`)
         console.error(`📊 [UNSPLASH SERVICE] API Error Data:`, error.response.data)
       }
 
-      console.log('🔄 [UNSPLASH SERVICE] Falling back to placeholder images')
-      return this.generatePlaceholderImages('random', count)
+      console.log("🔄 [UNSPLASH SERVICE] Falling back to placeholder images")
+      return this.generatePlaceholderImages("random", count)
     }
   }
 
   async testConnection() {
-    console.log('🔧 [UNSPLASH SERVICE] Testing connection...')
-    
+    console.log("🔧 [UNSPLASH SERVICE] Testing connection...")
+
     if (!this.accessKey) {
-      console.log('⚠️ [UNSPLASH SERVICE] No access key configured')
-      return { 
-        success: false, 
-        error: 'No access key configured',
-        fallbackAvailable: true
+      console.log("⚠️ [UNSPLASH SERVICE] No access key configured")
+      return {
+        success: false,
+        error: "No access key configured",
+        fallbackAvailable: true,
       }
     }
 
     try {
-      console.log('📡 [UNSPLASH SERVICE] Testing API connection...')
-      
+      console.log("📡 [UNSPLASH SERVICE] Testing API connection...")
+
       const response = await axios.get(`${this.baseUrl}/photos/random`, {
         params: { count: 1 },
         headers: {
-          'Authorization': `Client-ID ${this.accessKey}`,
-          'Accept-Version': 'v1'
+          Authorization: `Client-ID ${this.accessKey}`,
+          "Accept-Version": "v1",
         },
-        timeout: 5000
+        timeout: 5000,
       })
 
-      console.log('✅ [UNSPLASH SERVICE] Connection test successful')
-      return { 
+      console.log("✅ [UNSPLASH SERVICE] Connection test successful")
+      return {
         success: true,
         status: response.status,
         rateLimit: {
-          remaining: response.headers['x-ratelimit-remaining'],
-          limit: response.headers['x-ratelimit-limit']
-        }
+          remaining: response.headers["x-ratelimit-remaining"],
+          limit: response.headers["x-ratelimit-limit"],
+        },
       }
     } catch (error) {
-      console.error('❌ [UNSPLASH SERVICE] Connection test failed:', error.message)
-      
-      let errorDetails = { error: error.message }
+      console.error("❌ [UNSPLASH SERVICE] Connection test failed:", error.message)
+
+      const errorDetails = { error: error.message }
       if (error.response) {
         errorDetails.status = error.response.status
         errorDetails.statusText = error.response.statusText
-        
+
         if (error.response.status === 401) {
-          errorDetails.error = 'Invalid access key'
+          errorDetails.error = "Invalid access key"
         } else if (error.response.status === 403) {
-          errorDetails.error = 'Rate limit exceeded or access denied'
+          errorDetails.error = "Rate limit exceeded or access denied"
         }
       }
 
-      return { 
-        success: false, 
+      return {
+        success: false,
         fallbackAvailable: true,
-        ...errorDetails
+        ...errorDetails,
       }
     }
   }
@@ -248,7 +296,37 @@ class UnsplashService {
       accessKey: !!this.accessKey,
       baseUrl: this.baseUrl,
       timeout: this.requestTimeout,
-      maxRetries: this.maxRetries
+      maxRetries: this.maxRetries,
+      hasAccessKey: !!this.accessKey,
+    }
+  }
+
+  async fetchRandomImage(query) {
+    if (!this.accessKey) {
+      console.warn("⚠️ [UNSPLASH SERVICE] UNSPLASH_ACCESS_KEY is not set. Skipping real image fetch.")
+      return "/placeholder.svg?height=400&width=600" // Fallback placeholder
+    }
+
+    const url = `${this.baseUrl}/photos/random?query=${encodeURIComponent(query)}&client_id=${this.accessKey}`
+
+    try {
+      console.log(`🖼️ [UNSPLASH SERVICE] Fetching image for query: "${query}"`)
+      const response = await fetch(url)
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Unsplash API responded with status ${response.status}: ${errorText}`)
+      }
+      const data = await response.json()
+      if (data && data.urls && data.urls.regular) {
+        console.log(`✅ [UNSPLASH SERVICE] Fetched image URL: ${data.urls.regular}`)
+        return data.urls.regular
+      } else {
+        console.warn("⚠️ [UNSPLASH SERVICE] No image found for query, returning placeholder.")
+        return "/placeholder.svg?height=400&width=600"
+      }
+    } catch (error) {
+      console.error("❌ [UNSPLASH SERVICE] Error fetching image:", error.message)
+      return "/placeholder.svg?height=400&width=600" // Fallback placeholder on error
     }
   }
 }

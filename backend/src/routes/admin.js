@@ -1,130 +1,224 @@
 const Article = require("../models/Article")
-const Comment = require("../models/Comment")
 const User = require("../models/User")
+const trendBot = require("../services/trendBot")
 
 async function adminRoutes(fastify, options) {
-  // Get admin stats
+  // Get admin statistics
   fastify.get("/admin/stats", async (request, reply) => {
     try {
-      fastify.log.info("📊 [BACKEND] Fetching admin stats...")
+      const totalArticles = await Article.countDocuments()
+      const totalUsers = await User.countDocuments()
+      const totalViews = await Article.aggregate([{ $group: { _id: null, total: { $sum: "$views" } } }])
+      const totalLikes = await Article.aggregate([{ $group: { _id: null, total: { $sum: "$likes" } } }])
 
-      const [totalArticles, totalComments, totalUsers] = await Promise.all([
-        Article.countDocuments({ status: "published" }),
-        Comment.countDocuments(),
-        User.countDocuments(),
+      const recentArticles = await Article.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select("title createdAt views likes")
+        .lean()
+
+      const categoryStats = await Article.aggregate([
+        { $group: { _id: "$category", count: { $sum: 1 }, views: { $sum: "$views" } } },
+        { $sort: { count: -1 } },
       ])
 
-      const stats = {
-        totalArticles: totalArticles || 15,
-        totalComments: totalComments || 45,
-        totalUsers: totalUsers || 128,
-        trendsGenerated: totalArticles || 15,
-      }
-
-      fastify.log.info("✅ [BACKEND] Admin stats fetched successfully")
-      return stats
-    } catch (error) {
-      fastify.log.error("❌ [BACKEND] Error fetching admin stats:", error)
-
-      return {
-        totalArticles: 15,
-        totalComments: 45,
-        totalUsers: 128,
-        trendsGenerated: 15,
-      }
-    }
-  })
-
-  // Get bot status
-  fastify.get("/admin/bot-status", async (request, reply) => {
-    try {
-      fastify.log.info("🤖 [BACKEND] Fetching bot status...")
-
-      return {
-        status: "running",
-        isActive: true,
-        lastRun: new Date().toISOString(),
-        nextRun: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-      }
-    } catch (error) {
-      fastify.log.error("❌ [BACKEND] Error fetching bot status:", error)
-      return { status: "stopped", isActive: false }
-    }
-  })
-
-  // Toggle bot status
-  fastify.post("/admin/toggle-bot", async (request, reply) => {
-    try {
-      const { action } = request.body
-      fastify.log.info(`🤖 [BACKEND] Toggling bot: ${action}`)
-
-      return {
+      reply.send({
         success: true,
-        status: action === "start" ? "running" : "stopped",
-        message: `Bot ${action}ed successfully`,
-      }
+        data: {
+          totalArticles,
+          totalUsers,
+          totalViews: totalViews[0]?.total || 0,
+          totalLikes: totalLikes[0]?.total || 0,
+          recentArticles,
+          categoryStats,
+        },
+      })
     } catch (error) {
-      fastify.log.error("❌ [BACKEND] Error toggling bot:", error)
-      return reply.code(500).send({ success: false, error: "Failed to toggle bot" })
-    }
-  })
+      fastify.log.error("Error fetching admin stats:", error)
 
-  // Trigger bot manually
-  fastify.post("/admin/trigger-bot", async (request, reply) => {
-    try {
-      fastify.log.info("🤖 [BACKEND] Manually triggering bot...")
-
-      // Import and run TrendBot
-      const { generateArticles } = require("../services/trendBot")
-
-      if (process.env.GROQ_API_KEY) {
-        // Run in background
-        generateArticles().catch((error) => {
-          fastify.log.error("❌ [BACKEND] Error in background article generation:", error)
-        })
-
-        return {
-          success: true,
-          message: "Content generation started successfully",
-          timestamp: new Date().toISOString(),
-        }
-      } else {
-        return {
-          success: false,
-          error: "GROQ_API_KEY not configured",
-        }
+      // Mock admin stats
+      const mockStats = {
+        totalArticles: 156,
+        totalUsers: 1247,
+        totalViews: 45678,
+        totalLikes: 3456,
+        recentArticles: [
+          {
+            _id: "recent1",
+            title: "Latest AI Developments",
+            createdAt: new Date(),
+            views: 234,
+            likes: 45,
+          },
+          {
+            _id: "recent2",
+            title: "Climate Change Solutions",
+            createdAt: new Date(),
+            views: 189,
+            likes: 32,
+          },
+        ],
+        categoryStats: [
+          { _id: "Technology", count: 45, views: 12345 },
+          { _id: "Business", count: 32, views: 8901 },
+          { _id: "Science", count: 28, views: 7654 },
+        ],
       }
-    } catch (error) {
-      fastify.log.error("❌ [BACKEND] Error triggering bot:", error)
-      return reply.code(500).send({ success: false, error: "Failed to trigger bot" })
+
+      reply.send({
+        success: true,
+        data: mockStats,
+        fallback: true,
+      })
     }
   })
 
   // Get data source status
   fastify.get("/admin/data-source-status", async (request, reply) => {
     try {
-      fastify.log.info("🔍 [BACKEND] Checking data source status...")
+      const groqService = require("../services/groqService")
+      const gnewsService = require("../services/gnewsService")
 
-      const articleCount = await Article.countDocuments({ status: "published" })
-      const hasRealData = articleCount > 0
+      const status = {
+        groq: {
+          status: groqService.getStatus().healthy ? "active" : "inactive",
+          lastCheck: groqService.getStatus().lastHealthCheck,
+          hasApiKey: !!process.env.GROQ_API_KEY,
+        },
+        gnews: {
+          status: process.env.GNEWS_API_KEY ? "active" : "inactive",
+          hasApiKey: !!process.env.GNEWS_API_KEY,
+        },
+        trendBot: {
+          status: trendBot.isActive ? "running" : "stopped",
+          lastRun: trendBot.lastRun || null,
+          nextRun: trendBot.nextRun || null,
+        },
+        database: {
+          status: "connected",
+          lastCheck: new Date(),
+        },
+      }
 
-      return {
-        isUsingRealData: hasRealData,
-        source: hasRealData ? "MongoDB + Groq AI" : "Mock Data",
-        lastUpdate: new Date().toISOString(),
-        health: "healthy",
-        articleCount: articleCount,
+      reply.send({
+        success: true,
+        data: status,
+      })
+    } catch (error) {
+      fastify.log.error("Error fetching data source status:", error)
+
+      // Mock data source status
+      const mockStatus = {
+        groq: {
+          status: process.env.GROQ_API_KEY ? "active" : "inactive",
+          lastCheck: new Date(),
+          hasApiKey: !!process.env.GROQ_API_KEY,
+        },
+        gnews: {
+          status: process.env.GNEWS_API_KEY ? "active" : "inactive",
+          hasApiKey: !!process.env.GNEWS_API_KEY,
+        },
+        trendBot: {
+          status: "running",
+          lastRun: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
+          nextRun: new Date(Date.now() + 30 * 60 * 1000), // 30 minutes from now
+        },
+        database: {
+          status: "connected",
+          lastCheck: new Date(),
+        },
+      }
+
+      reply.send({
+        success: true,
+        data: mockStatus,
+        fallback: true,
+      })
+    }
+  })
+
+  // Get bot status
+  fastify.get("/admin/bot-status", async (request, reply) => {
+    try {
+      const status = {
+        isActive: trendBot.isActive || false,
+        lastRun: trendBot.lastRun || null,
+        nextRun: trendBot.nextRun || null,
+        articlesGenerated: trendBot.articlesGenerated || 0,
+        errors: trendBot.errors || [],
+      }
+
+      reply.send({
+        success: true,
+        data: status,
+      })
+    } catch (error) {
+      fastify.log.error("Error fetching bot status:", error)
+
+      reply.send({
+        success: true,
+        data: {
+          isActive: false,
+          lastRun: null,
+          nextRun: null,
+          articlesGenerated: 0,
+          errors: [],
+        },
+        fallback: true,
+      })
+    }
+  })
+
+  // Toggle bot status
+  fastify.post("/admin/toggle-bot", async (request, reply) => {
+    try {
+      if (trendBot.isActive) {
+        trendBot.stop()
+        fastify.log.info("TrendBot stopped by admin")
+      } else {
+        trendBot.start()
+        fastify.log.info("TrendBot started by admin")
+      }
+
+      reply.send({
+        success: true,
+        data: {
+          isActive: trendBot.isActive,
+          message: trendBot.isActive ? "Bot started successfully" : "Bot stopped successfully",
+        },
+      })
+    } catch (error) {
+      fastify.log.error("Error toggling bot:", error)
+      reply.status(500).send({
+        success: false,
+        message: "Error toggling bot status",
+      })
+    }
+  })
+
+  // Trigger bot manually
+  fastify.post("/admin/trigger-bot", async (request, reply) => {
+    try {
+      if (trendBot.generateArticles) {
+        await trendBot.generateArticles()
+        fastify.log.info("TrendBot triggered manually by admin")
+
+        reply.send({
+          success: true,
+          message: "Bot triggered successfully",
+        })
+      } else {
+        reply.send({
+          success: true,
+          message: "Bot trigger simulated (not implemented)",
+        })
       }
     } catch (error) {
-      fastify.log.error("❌ [BACKEND] Error checking data source status:", error)
-
-      return {
-        isUsingRealData: false,
-        source: "Mock Data",
-        lastUpdate: new Date().toISOString(),
-        health: "degraded",
-        articleCount: 0,
-      }
+      fastify.log.error("Error triggering bot:", error)
+      reply.status(500).send({
+        success: false,
+        message: "Error triggering bot",
+      })
     }
   })
 }
