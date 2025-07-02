@@ -1,348 +1,417 @@
 const axios = require("axios")
 const cheerio = require("cheerio")
+const GNewsService = require("./gnewsService")
 
 class TrendCrawler {
   constructor() {
-    this.isActive = false
-    this.sources = [
-      {
-        name: "Google Trends RSS",
-        url: "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US",
-        type: "rss",
-      },
-      {
-        name: "Reddit Hot",
-        url: "https://www.reddit.com/hot.json?limit=10",
-        type: "reddit",
-      },
-    ]
-    this.stats = {
-      totalCrawls: 0,
-      successfulCrawls: 0,
-      trendsFound: 0,
-      errors: 0,
-      lastCrawl: null,
+    this.sources = {
+      gnews: GNewsService,
+      googleTrends: this.scrapeGoogleTrends.bind(this),
+      redditHot: this.scrapeRedditHot.bind(this),
+      hackernews: this.scrapeHackerNews.bind(this),
     }
-
-    console.log(
-      "🕷️ [TrendCrawler] Initialized with sources:",
-      this.sources.map((s) => s.name),
-    )
+    console.log("🕷️ [TrendCrawler] Initialized with multiple sources")
   }
 
-  async crawlTrends() {
-    console.log("🔍 [TrendCrawler] Starting trend crawling...")
-    this.stats.totalCrawls++
-    this.stats.lastCrawl = new Date()
+  async crawlTrends(limit = 10) {
+    console.log(`🔍 [TrendCrawler] Starting trend crawling with limit: ${limit}`)
 
     try {
-      // Import GNews service
-      const GNewsService = require("./gnewsService")
+      // Try GNews first (most reliable)
+      const gnewsResult = await GNewsService.getTrendingTopics(limit)
 
-      console.log("📡 [TrendCrawler] Fetching trends from GNews...")
-      const gnewsResult = await GNewsService.getTrendingTopics(10)
-
-      if (gnewsResult.success && gnewsResult.trends) {
-        const trends = gnewsResult.trends.map((article) => ({
-          title: article.title,
-          description: article.description,
-          url: article.url,
-          publishedAt: article.publishedAt,
-          source: "gnews",
-          category: article.category,
-          tags: article.tags,
-          score: article.score,
-          thumbnail: article.image || "/placeholder.svg?height=400&width=600",
-        }))
-
-        this.stats.successfulCrawls++
-        this.stats.trendsFound += trends.length
-
-        console.log(`🎉 [TrendCrawler] Successfully crawled ${trends.length} trends`)
-
+      if (gnewsResult.success && gnewsResult.trends && gnewsResult.trends.length > 0) {
+        console.log(`✅ [TrendCrawler] Successfully got ${gnewsResult.trends.length} trends from GNews`)
         return {
           success: true,
-          trends: trends,
-          source: "gnews",
+          trends: gnewsResult.trends.map((trend) => ({
+            ...trend,
+            source: "gnews",
+          })),
+          source: "gnews_api",
           timestamp: new Date().toISOString(),
         }
       }
 
-      throw new Error("No trends found from GNews")
+      throw new Error("GNews API returned no valid trends")
     } catch (error) {
-      console.error("❌ [TrendCrawler] Crawling failed:", error.message)
-      this.stats.errors++
+      console.error("❌ [TrendCrawler] GNews crawling failed:", error.message)
 
-      // Return fallback trends
+      // Fallback to alternative sources
+      return await this.scrapeAlternativeSources(limit)
+    }
+  }
+
+  async scrapeAlternativeSources(limit = 10) {
+    console.log(`🕷️ [TrendCrawler] Falling back to alternative sources for ${limit} articles`)
+
+    const allTrends = []
+    const sources = [
+      { name: "hackernews", method: this.scrapeHackerNews, limit: Math.ceil(limit * 0.4) },
+      { name: "reddit", method: this.scrapeRedditHot, limit: Math.ceil(limit * 0.3) },
+      { name: "google-trends", method: this.scrapeGoogleTrends, limit: Math.ceil(limit * 0.3) },
+    ]
+
+    for (const source of sources) {
+      try {
+        console.log(`🔍 [TrendCrawler] Scraping ${source.name} for ${source.limit} articles...`)
+        const trends = await source.method(source.limit)
+
+        if (trends && trends.length > 0) {
+          allTrends.push(
+            ...trends.map((trend) => ({
+              ...trend,
+              source: source.name,
+            })),
+          )
+          console.log(`✅ [TrendCrawler] Got ${trends.length} trends from ${source.name}`)
+        }
+      } catch (error) {
+        console.error(`❌ [TrendCrawler] Failed to scrape ${source.name}:`, error.message)
+      }
+
+      // Add delay between sources
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+
+    if (allTrends.length === 0) {
+      console.log("⚠️ [TrendCrawler] No trends found from any source, using fallback")
       return {
         success: false,
-        trends: this.getFallbackTrends(),
+        trends: this.getFallbackTrends(limit),
         source: "fallback",
-        error: error.message,
         timestamp: new Date().toISOString(),
       }
     }
-  }
 
-  async crawlRSSFeed(source) {
-    try {
-      console.log(`🔗 [TrendCrawler] Fetching RSS feed: ${source.url}`)
+    // Remove duplicates and limit results
+    const uniqueTrends = this.removeDuplicates(allTrends).slice(0, limit)
 
-      const response = await axios.get(source.url, {
-        timeout: 10000,
-        headers: {
-          "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
-        },
-      })
-
-      console.log(`📄 [TrendCrawler] RSS response received: ${response.data.length} characters`)
-
-      const $ = cheerio.load(response.data, { xmlMode: true })
-      const trends = []
-
-      $("item").each((index, element) => {
-        try {
-          const $item = $(element)
-          const title = $item.find("title").text().trim()
-          const description = $item.find("description").text().trim()
-          const link = $item.find("link").text().trim()
-          const pubDate = $item.find("pubDate").text().trim()
-
-          if (title && description) {
-            const trend = {
-              title: title,
-              description: description.substring(0, 500), // Limit description length
-              link: link || "#",
-              publishedAt: pubDate ? new Date(pubDate) : new Date(),
-              source: source.name,
-              category: this.extractCategory(title, description),
-              keywords: this.extractKeywords(title, description),
-              thumbnail: "/placeholder.svg?height=400&width=600",
-              excerpt: description.substring(0, 200),
-              tags: this.generateTags(title, description),
-              readTime: Math.ceil(description.length / 200), // Rough estimate
-              trendData: {
-                source: source.name,
-                originalUrl: link,
-                crawledAt: new Date(),
-              },
-            }
-
-            trends.push(trend)
-            console.log(`📝 [TrendCrawler] Parsed trend: "${title.substring(0, 50)}..."`)
-          }
-        } catch (itemError) {
-          console.warn(`⚠️ [TrendCrawler] Failed to parse RSS item:`, itemError.message)
-        }
-      })
-
-      console.log(`✅ [TrendCrawler] RSS parsing completed: ${trends.length} trends extracted`)
-      return trends
-    } catch (error) {
-      console.error(`❌ [TrendCrawler] RSS crawling failed:`, error.message)
-      throw error
-    }
-  }
-
-  async crawlReddit(source) {
-    try {
-      console.log(`🔗 [TrendCrawler] Fetching Reddit data: ${source.url}`)
-
-      const response = await axios.get(source.url, {
-        timeout: 10000,
-        headers: {
-          "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
-        },
-      })
-
-      console.log(`📄 [TrendCrawler] Reddit response received`)
-
-      const data = response.data
-      const trends = []
-
-      if (data.data && data.data.children) {
-        data.data.children.forEach((post, index) => {
-          try {
-            const postData = post.data
-
-            if (postData.title && postData.selftext) {
-              const trend = {
-                title: postData.title,
-                description: postData.selftext.substring(0, 500),
-                link: `https://reddit.com${postData.permalink}`,
-                publishedAt: new Date(postData.created_utc * 1000),
-                source: "Reddit",
-                category: postData.subreddit || "general",
-                keywords: this.extractKeywords(postData.title, postData.selftext),
-                thumbnail:
-                  postData.thumbnail && postData.thumbnail.startsWith("http")
-                    ? postData.thumbnail
-                    : "/placeholder.svg?height=400&width=600",
-                excerpt: postData.selftext.substring(0, 200),
-                tags: this.generateTags(postData.title, postData.selftext),
-                readTime: Math.ceil(postData.selftext.length / 200),
-                views: postData.ups || 0,
-                trendData: {
-                  source: "Reddit",
-                  subreddit: postData.subreddit,
-                  upvotes: postData.ups,
-                  comments: postData.num_comments,
-                  originalUrl: `https://reddit.com${postData.permalink}`,
-                  crawledAt: new Date(),
-                },
-              }
-
-              trends.push(trend)
-              console.log(`📝 [TrendCrawler] Parsed Reddit post: "${postData.title.substring(0, 50)}..."`)
-            }
-          } catch (itemError) {
-            console.warn(`⚠️ [TrendCrawler] Failed to parse Reddit post:`, itemError.message)
-          }
-        })
-      }
-
-      console.log(`✅ [TrendCrawler] Reddit parsing completed: ${trends.length} trends extracted`)
-      return trends
-    } catch (error) {
-      console.error(`❌ [TrendCrawler] Reddit crawling failed:`, error.message)
-      throw error
-    }
-  }
-
-  extractCategory(title, description) {
-    const text = `${title} ${description}`.toLowerCase()
-
-    const categories = {
-      technology: ["tech", "ai", "software", "app", "digital", "computer", "internet"],
-      business: ["business", "economy", "market", "finance", "money", "company"],
-      health: ["health", "medical", "doctor", "hospital", "medicine", "wellness"],
-      science: ["science", "research", "study", "discovery", "scientist"],
-      entertainment: ["movie", "music", "celebrity", "entertainment", "show"],
-      sports: ["sport", "game", "player", "team", "match", "championship"],
-      politics: ["politics", "government", "election", "policy", "law"],
-    }
-
-    for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some((keyword) => text.includes(keyword))) {
-        return category
-      }
-    }
-
-    return "general"
-  }
-
-  extractKeywords(title, description) {
-    const text = `${title} ${description}`.toLowerCase()
-    const words = text.match(/\b\w{4,}\b/g) || []
-
-    // Remove common words
-    const stopWords = [
-      "this",
-      "that",
-      "with",
-      "have",
-      "will",
-      "from",
-      "they",
-      "been",
-      "said",
-      "each",
-      "which",
-      "their",
-      "time",
-      "about",
-    ]
-    const keywords = words.filter((word) => !stopWords.includes(word))
-
-    // Get unique keywords and limit to top 10
-    return [...new Set(keywords)].slice(0, 10)
-  }
-
-  generateTags(title, description) {
-    const keywords = this.extractKeywords(title, description)
-    return keywords.slice(0, 5) // Limit to 5 tags
-  }
-
-  getStatus() {
+    console.log(`✅ [TrendCrawler] Successfully scraped ${uniqueTrends.length} unique trends`)
     return {
-      isActive: this.isActive,
-      stats: this.stats,
-      sources: this.sources.map((s) => ({ name: s.name, type: s.type })),
+      success: true,
+      trends: uniqueTrends,
+      source: "alternative_scraping",
+      timestamp: new Date().toISOString(),
     }
   }
 
-  async cleanup() {
-    console.log("🧹 [TrendCrawler] Cleaning up resources...")
-    this.isActive = false
-    // No browser to close since we're using Cheerio
-    console.log("✅ [TrendCrawler] Cleanup completed")
+  async scrapeHackerNews(limit = 5) {
+    try {
+      console.log(`📰 [TrendCrawler] Scraping Hacker News for ${limit} articles...`)
+
+      const response = await axios.get("https://hacker-news.firebaseio.com/v0/topstories.json", {
+        timeout: 10000,
+        headers: {
+          "User-Agent": "TrendWise-Bot/1.0",
+        },
+      })
+
+      const topStoryIds = response.data.slice(0, limit * 2) // Get more IDs to filter
+      const stories = []
+
+      for (let i = 0; i < Math.min(topStoryIds.length, limit * 2); i++) {
+        try {
+          const storyResponse = await axios.get(`https://hacker-news.firebaseio.com/v0/item/${topStoryIds[i]}.json`, {
+            timeout: 5000,
+          })
+
+          const story = storyResponse.data
+          if (story && story.title && story.url && !story.deleted) {
+            stories.push({
+              title: story.title,
+              description: story.title, // HN doesn't have descriptions
+              url: story.url,
+              publishedAt: new Date(story.time * 1000).toISOString(),
+              source: "Hacker News",
+              image: null,
+              category: this.categorizeByTitle(story.title),
+              tags: this.extractTagsFromTitle(story.title),
+              score: story.score || 0,
+            })
+
+            if (stories.length >= limit) break
+          }
+        } catch (storyError) {
+          console.error(`❌ [TrendCrawler] Failed to fetch HN story ${topStoryIds[i]}:`, storyError.message)
+        }
+
+        // Small delay between requests
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+
+      console.log(`✅ [TrendCrawler] Scraped ${stories.length} stories from Hacker News`)
+      return stories
+    } catch (error) {
+      console.error("❌ [TrendCrawler] Hacker News scraping failed:", error.message)
+      return []
+    }
+  }
+
+  async scrapeRedditHot(limit = 5) {
+    try {
+      console.log(`🔥 [TrendCrawler] Scraping Reddit hot posts for ${limit} articles...`)
+
+      const subreddits = ["technology", "programming", "science", "business", "worldnews"]
+      const posts = []
+
+      for (const subreddit of subreddits) {
+        try {
+          const response = await axios.get(`https://www.reddit.com/r/${subreddit}/hot.json?limit=5`, {
+            timeout: 10000,
+            headers: {
+              "User-Agent": "TrendWise-Bot/1.0",
+            },
+          })
+
+          const redditPosts = response.data?.data?.children || []
+
+          for (const post of redditPosts) {
+            const data = post.data
+            if (data && data.title && !data.is_self && data.url) {
+              posts.push({
+                title: data.title,
+                description: data.selftext || data.title,
+                url: data.url,
+                publishedAt: new Date(data.created_utc * 1000).toISOString(),
+                source: `Reddit r/${subreddit}`,
+                image: data.preview?.images?.[0]?.source?.url?.replace(/&amp;/g, "&") || null,
+                category: this.categorizeByTitle(data.title),
+                tags: this.extractTagsFromTitle(data.title),
+                score: data.score || 0,
+              })
+
+              if (posts.length >= limit) break
+            }
+          }
+
+          if (posts.length >= limit) break
+        } catch (subredditError) {
+          console.error(`❌ [TrendCrawler] Failed to scrape r/${subreddit}:`, subredditError.message)
+        }
+
+        // Delay between subreddits
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+
+      console.log(`✅ [TrendCrawler] Scraped ${posts.length} posts from Reddit`)
+      return posts
+    } catch (error) {
+      console.error("❌ [TrendCrawler] Reddit scraping failed:", error.message)
+      return []
+    }
+  }
+
+  async scrapeGoogleTrends(limit = 5) {
+    try {
+      console.log(`📈 [TrendCrawler] Scraping Google News RSS for ${limit} articles...`)
+
+      const queries = [
+        "technology news",
+        "artificial intelligence",
+        "startup news",
+        "business innovation",
+        "science breakthrough",
+      ]
+
+      const articles = []
+
+      for (const query of queries) {
+        try {
+          const encodedQuery = encodeURIComponent(query)
+          const url = `https://news.google.com/rss/search?q=${encodedQuery}&hl=en-US&gl=US&ceid=US:en`
+
+          const response = await axios.get(url, {
+            timeout: 10000,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            },
+          })
+
+          const $ = cheerio.load(response.data, { xmlMode: true })
+
+          $("item").each((index, element) => {
+            if (articles.length >= limit) return false
+
+            const $item = $(element)
+            const title = $item.find("title").text().trim()
+            const link = $item.find("link").text().trim()
+            const description = $item.find("description").text().trim()
+            const pubDate = $item.find("pubDate").text().trim()
+
+            if (title && link) {
+              articles.push({
+                title: this.cleanTitle(title),
+                description: this.cleanDescription(description) || title,
+                url: link,
+                publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+                source: "Google News",
+                image: null,
+                category: this.categorizeByTitle(title),
+                tags: this.extractTagsFromTitle(title),
+                score: Math.floor(Math.random() * 50) + 50,
+              })
+            }
+          })
+
+          if (articles.length >= limit) break
+        } catch (queryError) {
+          console.error(`❌ [TrendCrawler] Failed to scrape Google News for "${query}":`, queryError.message)
+        }
+
+        // Delay between queries
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+
+      console.log(`✅ [TrendCrawler] Scraped ${articles.length} articles from Google News RSS`)
+      return articles
+    } catch (error) {
+      console.error("❌ [TrendCrawler] Google News scraping failed:", error.message)
+      return []
+    }
+  }
+
+  categorizeByTitle(title) {
+    const titleLower = title.toLowerCase()
+
+    if (
+      titleLower.includes("ai") ||
+      titleLower.includes("artificial intelligence") ||
+      titleLower.includes("machine learning")
+    ) {
+      return "Technology"
+    }
+    if (titleLower.includes("startup") || titleLower.includes("business") || titleLower.includes("finance")) {
+      return "Business"
+    }
+    if (titleLower.includes("health") || titleLower.includes("medical") || titleLower.includes("medicine")) {
+      return "Health"
+    }
+    if (titleLower.includes("science") || titleLower.includes("research") || titleLower.includes("study")) {
+      return "Science"
+    }
+    if (titleLower.includes("climate") || titleLower.includes("environment") || titleLower.includes("green")) {
+      return "Environment"
+    }
+
+    return "General"
+  }
+
+  extractTagsFromTitle(title) {
+    const commonTags = [
+      "AI",
+      "Technology",
+      "Business",
+      "Science",
+      "Health",
+      "Innovation",
+      "Startup",
+      "Research",
+      "Digital",
+      "Software",
+      "Data",
+      "Security",
+    ]
+
+    const titleLower = title.toLowerCase()
+    const foundTags = commonTags.filter((tag) => titleLower.includes(tag.toLowerCase()))
+
+    return foundTags.length > 0 ? foundTags.slice(0, 5) : ["News", "Trending"]
+  }
+
+  cleanTitle(title) {
+    return title.replace(/ - [^-]+$/, "").trim()
+  }
+
+  cleanDescription(description) {
+    return description
+      .replace(/<[^>]*>/g, "")
+      .replace(/&[^;]+;/g, " ")
+      .trim()
+      .substring(0, 300)
+  }
+
+  removeDuplicates(trends) {
+    const seen = new Set()
+    return trends.filter((trend) => {
+      const key = trend.title.toLowerCase().replace(/[^\w]/g, "")
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+  }
+
+  getFallbackTrends(limit = 10) {
+    const fallbackTrends = [
+      {
+        title: "Artificial Intelligence Breakthrough in Healthcare Diagnostics",
+        description: "New AI system shows 95% accuracy in early disease detection",
+        category: "Technology",
+        tags: ["AI", "Healthcare", "Technology", "Innovation"],
+        source: "fallback",
+        publishedAt: new Date().toISOString(),
+        score: 85,
+      },
+      {
+        title: "Sustainable Energy Solutions Gain Global Momentum",
+        description: "Renewable energy adoption accelerates worldwide with new government initiatives",
+        category: "Environment",
+        tags: ["Renewable Energy", "Environment", "Sustainability", "Climate"],
+        source: "fallback",
+        publishedAt: new Date().toISOString(),
+        score: 80,
+      },
+      {
+        title: "Quantum Computing Milestone Achieved by Tech Giants",
+        description: "Major breakthrough in quantum error correction brings practical applications closer",
+        category: "Technology",
+        tags: ["Quantum Computing", "Technology", "Innovation", "Science"],
+        source: "fallback",
+        publishedAt: new Date().toISOString(),
+        score: 90,
+      },
+      {
+        title: "Digital Banking Revolution Transforms Financial Services",
+        description: "Fintech innovations reshape traditional banking with AI-powered solutions",
+        category: "Business",
+        tags: ["Fintech", "Banking", "Digital", "Finance"],
+        source: "fallback",
+        publishedAt: new Date().toISOString(),
+        score: 75,
+      },
+      {
+        title: "Space Technology Advances Enable Mars Mission Planning",
+        description: "New propulsion systems and life support technologies pave way for Mars exploration",
+        category: "Science",
+        tags: ["Space", "Mars", "Technology", "Exploration"],
+        source: "fallback",
+        publishedAt: new Date().toISOString(),
+        score: 85,
+      },
+    ]
+
+    return fallbackTrends.slice(0, limit)
   }
 
   async healthCheck() {
     try {
-      console.log(`🏥 [TrendCrawler] Running health check...`)
+      // Test GNews service
+      const gnewsHealth = await GNewsService.testConnection()
 
-      // Test with a more reliable URL for health check
-      const testUrl = "https://www.google.com" // Use a reliable URL instead of the actual source
-      console.log(`🔗 [TrendCrawler] Testing connection to: ${testUrl}`)
-
-      const startTime = Date.now()
-      const response = await axios.get(testUrl, {
+      // Test basic HTTP connectivity
+      const testResponse = await axios.get("https://httpbin.org/status/200", {
         timeout: 5000,
-        headers: {
-          "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
-        },
       })
-      const endTime = Date.now()
 
-      const isHealthy = response.status === 200
-      const responseTime = endTime - startTime
-
-      const healthStatus = {
-        status: isHealthy ? "healthy" : "unhealthy",
+      return {
+        status: "healthy",
+        gnews: gnewsHealth,
+        connectivity: testResponse.status === 200,
         timestamp: new Date().toISOString(),
-        responseTime: `${responseTime}ms`,
-        dataSize: response.data.length,
-        lastCheck: new Date().toISOString(),
-        sourceStatus: [],
       }
-
-      // Also log individual source statuses but don't fail the whole check
-      for (const source of this.sources) {
-        try {
-          console.log(`🔗 [TrendCrawler] Testing source: ${source.name} (${source.url})`)
-          const sourceResponse = await axios.get(source.url, {
-            timeout: 5000,
-            headers: {
-              "User-Agent": "TrendWise-Bot/1.0 (https://trendwise.com)",
-            },
-          })
-
-          healthStatus.sourceStatus.push({
-            name: source.name,
-            url: source.url,
-            status: sourceResponse.status,
-            healthy: sourceResponse.status === 200,
-            timestamp: new Date().toISOString(),
-          })
-        } catch (sourceError) {
-          console.log(`⚠️ [TrendCrawler] Source ${source.name} health check failed: ${sourceError.message}`)
-          healthStatus.sourceStatus.push({
-            name: source.name,
-            url: source.url,
-            status: sourceError.response?.status || "unknown",
-            healthy: false,
-            error: sourceError.message,
-            timestamp: new Date().toISOString(),
-          })
-        }
-      }
-
-      console.log(`${isHealthy ? "✅" : "❌"} [TrendCrawler] Health check ${healthStatus.status}`)
-      console.log(`📊 [TrendCrawler] Health details: ${JSON.stringify(healthStatus)}`)
-      return healthStatus
     } catch (error) {
-      console.error(`❌ [TrendCrawler] Health check failed:`, error.message)
       return {
         status: "unhealthy",
         error: error.message,
@@ -351,38 +420,8 @@ class TrendCrawler {
     }
   }
 
-  getFallbackTrends() {
-    return [
-      {
-        title: "AI Revolution: Latest Breakthroughs in Machine Learning",
-        description:
-          "Exploring the newest developments in artificial intelligence and their impact on various industries.",
-        source: "fallback",
-        category: "Technology",
-        tags: ["AI", "Technology", "Innovation"],
-        score: 85,
-        publishedAt: new Date().toISOString(),
-      },
-      {
-        title: "Sustainable Technology: Green Innovation Trends",
-        description:
-          "How sustainable technology is reshaping industries and creating new opportunities for environmental protection.",
-        source: "fallback",
-        category: "Environment",
-        tags: ["Sustainability", "Green Tech", "Environment"],
-        score: 80,
-        publishedAt: new Date().toISOString(),
-      },
-      {
-        title: "Digital Transformation: Business Evolution in 2024",
-        description: "Companies are embracing digital transformation to stay competitive in the modern marketplace.",
-        source: "fallback",
-        category: "Business",
-        tags: ["Digital", "Business", "Transformation"],
-        score: 75,
-        publishedAt: new Date().toISOString(),
-      },
-    ]
+  async getTrendingTopics(limit = 10) {
+    return await this.crawlTrends(limit)
   }
 }
 

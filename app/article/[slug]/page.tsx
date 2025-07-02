@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation"
 import { Header } from "@/components/header"
+import { Footer } from "@/components/footer"
 import { ArticleContent } from "@/components/article-content"
 import { CommentSection } from "@/components/comment-section"
-import { Footer } from "@/components/footer"
-import { ErrorBoundary } from "@/components/ErrorBoundary"
 
 interface ArticlePageProps {
   params: {
@@ -13,11 +12,16 @@ interface ArticlePageProps {
 
 async function getArticle(slug: string) {
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/articles/${slug}`, {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    const response = await fetch(`${baseUrl}/api/articles/${slug}`, {
       cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
     })
 
     if (!response.ok) {
+      console.error(`Failed to fetch article: ${response.status} ${response.statusText}`)
       return null
     }
 
@@ -41,8 +45,9 @@ export async function generateMetadata({ params }: ArticlePageProps) {
 
   return {
     title: `${article.title} - TrendWise`,
-    description: article.meta?.description || article.excerpt,
-    keywords: article.meta?.keywords || article.tags?.join(", "),
+    description:
+      article.meta?.description || article.excerpt || "Read the latest trending news and insights on TrendWise.",
+    keywords: article.meta?.keywords || article.tags?.join(", ") || "news, trends, technology",
     openGraph: {
       title: article.title,
       description: article.meta?.description || article.excerpt,
@@ -77,13 +82,11 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-      <main>
-        <ErrorBoundary>
-          <ArticleContent article={article} />
-        </ErrorBoundary>
-        <ErrorBoundary>
+      <main className="container mx-auto px-4 py-8">
+        <ArticleContent article={article} />
+        <div className="mt-12">
           <CommentSection articleId={article._id} />
-        </ErrorBoundary>
+        </div>
       </main>
       <Footer />
     </div>

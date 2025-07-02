@@ -1,13 +1,18 @@
 const axios = require("axios")
 const Groq = require("groq-sdk")
 
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+})
+
 class GroqService {
   constructor() {
     this.apiKey = process.env.GROQ_API_KEY
     this.baseUrl = "https://api.groq.com/openai/v1"
-    this.model = "llama3-8b-8192" // Fast and efficient model
+    this.model = "llama-3.1-8b-instant" // Updated model
     this.requestTimeout = 30000 // 30 seconds
-    this.maxRetries = 2
+    this.maxRetries = 3
+    this.rateLimitDelay = 2000 // 2 seconds between requests
     this.client = new Groq({
       apiKey: this.apiKey,
     })
@@ -28,6 +33,9 @@ class GroqService {
     }
 
     try {
+      // Add rate limiting delay
+      await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay))
+
       const prompt = this.createArticlePrompt(article)
       console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
 
@@ -64,6 +72,9 @@ class GroqService {
     }
 
     try {
+      // Add rate limiting delay
+      await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay))
+
       const prompt = `Generate ${limit} realistic Twitter-style tweets about "${query}". 
 
 Requirements:
@@ -120,7 +131,7 @@ Respond with ONLY valid JSON in this format:
       {
         username: "TechNewsDaily",
         handle: "@technewsdaily",
-        text: `🚨 BREAKING: ${query} - This could be a game changer! What are your thoughts? #TechNews #Innovation #Breaking`,
+        text: `🚨 BREAKING: ${query.substring(0, 100)} - This could be a game changer! What are your thoughts? #TechNews #Innovation #Breaking`,
         link: this.createTwitterSearchUrl(query),
         timestamp: new Date().toISOString(),
         engagement: { likes: 342, retweets: 89, replies: 45 },
@@ -128,7 +139,7 @@ Respond with ONLY valid JSON in this format:
       {
         username: "IndustryAnalyst",
         handle: "@industryanalyst",
-        text: `Deep dive analysis: ${query} represents a significant shift in market dynamics. Thread below 🧵 #Analysis #MarketTrends`,
+        text: `Deep dive analysis: ${query.substring(0, 80)} represents a significant shift in market dynamics. Thread below 🧵 #Analysis #MarketTrends`,
         link: this.createTwitterSearchUrl(query),
         timestamp: new Date(Date.now() - 3600000).toISOString(),
         engagement: { likes: 156, retweets: 34, replies: 28 },
@@ -136,7 +147,7 @@ Respond with ONLY valid JSON in this format:
       {
         username: "TechSkeptic",
         handle: "@techskeptic",
-        text: `Hmm, not sure about ${query}... We've seen similar promises before. Prove me wrong! 🤔 #TechSkepticism #ShowMeTheData`,
+        text: `Hmm, not sure about ${query.substring(0, 60)}... We've seen similar promises before. Prove me wrong! 🤔 #TechSkepticism #ShowMeTheData`,
         link: this.createTwitterSearchUrl(query),
         timestamp: new Date(Date.now() - 7200000).toISOString(),
         engagement: { likes: 89, retweets: 12, replies: 67 },
@@ -144,7 +155,7 @@ Respond with ONLY valid JSON in this format:
       {
         username: "FutureTechFan",
         handle: "@futuretechfan",
-        text: `OMG YES! 🎉 ${query} is exactly what we needed! The future is here and I'm here for it! #FutureTech #Excited #Innovation`,
+        text: `OMG YES! 🎉 ${query.substring(0, 70)} is exactly what we needed! The future is here and I'm here for it! #FutureTech #Excited #Innovation`,
         link: this.createTwitterSearchUrl(query),
         timestamp: new Date(Date.now() - 10800000).toISOString(),
         engagement: { likes: 234, retweets: 67, replies: 19 },
@@ -152,7 +163,7 @@ Respond with ONLY valid JSON in this format:
       {
         username: "DataDrivenDev",
         handle: "@datadrivendev",
-        text: `Interesting data points around ${query}. Looking at the metrics, this could impact adoption rates significantly 📊 #Data #Metrics`,
+        text: `Interesting data points around ${query.substring(0, 50)}. Looking at the metrics, this could impact adoption rates significantly 📊 #Data #Metrics`,
         link: this.createTwitterSearchUrl(query),
         timestamp: new Date(Date.now() - 14400000).toISOString(),
         engagement: { likes: 178, retweets: 23, replies: 31 },
@@ -175,6 +186,11 @@ Respond with ONLY valid JSON in this format:
     const requestData = {
       model: this.model,
       messages: [
+        {
+          role: "system",
+          content:
+            "You are a professional content writer and SEO expert. Create high-quality, engaging content with proper HTML structure.",
+        },
         {
           role: "user",
           content: prompt,
@@ -233,6 +249,25 @@ Respond with ONLY valid JSON in this format:
       } catch (error) {
         console.error(`❌ [GROQ SERVICE] Attempt ${attempt} failed:`, error.message)
 
+        if (error.response) {
+          console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
+          console.error(`📊 [GROQ SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
+
+          // Don't retry on certain errors
+          if (error.response.status === 401 || error.response.status === 403) {
+            console.error(`🔑 [GROQ SERVICE] Authentication error - check API key`)
+            throw new Error("Authentication failed - check API key")
+          }
+
+          // Rate limit handling
+          if (error.response.status === 429) {
+            const waitTime = attempt * 5000 // Longer wait for rate limits
+            console.log(`⏳ [GROQ SERVICE] Rate limited, waiting ${waitTime}ms...`)
+            await new Promise((resolve) => setTimeout(resolve, waitTime))
+            continue
+          }
+        }
+
         if (attempt === this.maxRetries) {
           throw error
         }
@@ -277,19 +312,6 @@ HTML Structure Requirements:
 - Include bullet points using <ul><li> tags
 - Use <strong> for important terms
 - End with a conclusion paragraph
-
-Example structure:
-<p>Introduction paragraph...</p>
-
-<h2>Main Section Title</h2>
-<p>Section content...</p>
-
-<h3>Subsection Title</h3>
-<p>Subsection content...</p>
-<ul>
-<li>Key point 1</li>
-<li>Key point 2</li>
-</ul>
 
 Focus on providing value to readers while maintaining readability and SEO best practices. Return ONLY the HTML content without any markdown or additional formatting.`
   }
@@ -346,6 +368,8 @@ Focus on providing value to readers while maintaining readability and SEO best p
     return {
       success: false,
       content,
+      excerpt: excerpt.substring(0, 160),
+      tags: ["trending", "news", "analysis"],
       seo: this.generateSEOData(article),
       source: "fallback_template",
       reason: "API unavailable or failed",
@@ -434,31 +458,41 @@ Focus on providing value to readers while maintaining readability and SEO best p
   extractTags(title, description) {
     const text = `${title} ${description}`.toLowerCase()
     const commonTags = [
-      "technology",
       "ai",
+      "artificial intelligence",
+      "technology",
       "business",
+      "startup",
       "innovation",
-      "news",
-      "trending",
+      "science",
+      "health",
+      "finance",
       "digital",
-      "future",
-      "market",
-      "analysis",
-      "breakthrough",
-      "development",
+      "software",
+      "data",
+      "security",
+      "blockchain",
+      "cryptocurrency",
+      "machine learning",
+      "automation",
+      "cloud",
+      "mobile",
+      "web",
     ]
 
     const foundTags = commonTags.filter((tag) => text.includes(tag))
+    return foundTags.length > 0 ? foundTags.slice(0, 5) : ["technology", "news"]
+  }
 
-    // Add title-based tags
-    const titleWords = title
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((word) => word.length > 4 && !["this", "that", "with", "from"].includes(word))
-
-    foundTags.push(...titleWords.slice(0, 3))
-
-    return [...new Set(foundTags)].slice(0, 6)
+  getStats() {
+    return {
+      apiKey: this.apiKey ? "configured" : "missing",
+      model: this.model,
+      baseUrl: this.baseUrl,
+      timeout: this.requestTimeout,
+      maxRetries: this.maxRetries,
+      rateLimitDelay: this.rateLimitDelay,
+    }
   }
 }
 

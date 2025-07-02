@@ -1,5 +1,6 @@
 const axios = require("axios")
 const cheerio = require("cheerio")
+const fetch = require("node-fetch")
 
 class GNewsService {
   constructor() {
@@ -322,7 +323,7 @@ class GNewsService {
           "As cyber threats evolve, organizations are adopting advanced security measures to protect sensitive data and systems.",
         category: "Security",
         tags: ["Cybersecurity", "Data Protection", "Technology", "Security"],
-        image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=400&fit=crop",
+        image: "https://images.unsplash.com/photo-1550751827485-074b7f938ba0?w=800&h=400&fit=crop",
       },
       {
         title: "Remote Work Evolution: The Future of Digital Collaboration",
@@ -564,7 +565,7 @@ class GNewsService {
 
   // Get diverse news from multiple categories
   async getDiverseNews(options = {}) {
-    const categories = ["general", "technology", "business", "health", "science", "entertainment"]
+    const categories = ["general", "technology", "business", "health", "science", "sports"]
     const articlesPerCategory = Math.ceil((options.max || 50) / categories.length)
 
     console.log(`🌐 [GNEWS] Fetching diverse news from ${categories.length} categories`)
@@ -605,6 +606,201 @@ class GNewsService {
       return { articles: [] }
     }
   }
+
+  async fetchTrendingNews() {
+    try {
+      console.log("📰 [GNEWS] Fetching trending news...")
+
+      if (!this.apiKey) {
+        throw new Error("GNEWS_API_KEY is not configured")
+      }
+
+      // Fetch from multiple categories to get diverse content
+      const categories = ["general", "business", "technology", "health", "science", "sports"]
+      const allArticles = []
+
+      for (const category of categories) {
+        try {
+          console.log(`📊 [GNEWS] Fetching ${category} news...`)
+
+          const response = await axios.get(`${this.baseURL}/top-headlines`, {
+            params: {
+              apikey: this.apiKey,
+              lang: "en",
+              country: "us",
+              category: category,
+              max: 10, // Get 10 articles per category
+              nullable: "image,content", // Allow null values for image and content
+            },
+            timeout: this.requestTimeout,
+          })
+
+          if (response.data && response.data.articles) {
+            // Filter articles with valid content and add category info
+            const validArticles = response.data.articles
+              .filter(
+                (article) =>
+                  article.title && article.description && article.title.length > 10 && article.description.length > 50,
+              )
+              .map((article) => ({
+                ...article,
+                category: category,
+                // Ensure image URL is properly formatted
+                image: article.image && article.image.startsWith("http") ? article.image : null,
+              }))
+
+            allArticles.push(...validArticles)
+            console.log(`✅ [GNEWS] Found ${validArticles.length} valid articles in ${category}`)
+          }
+
+          // Add delay between requests to respect rate limits
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+        } catch (categoryError) {
+          console.error(`❌ [GNEWS] Error fetching ${category} news:`, categoryError.message)
+          continue // Continue with other categories
+        }
+      }
+
+      if (allArticles.length === 0) {
+        throw new Error("No valid articles found from any category")
+      }
+
+      // Remove duplicates based on title similarity
+      const uniqueArticles = this.removeDuplicates(allArticles)
+
+      console.log(`🎉 [GNEWS] Successfully fetched ${uniqueArticles.length} unique articles`)
+
+      return {
+        totalArticles: uniqueArticles.length,
+        articles: uniqueArticles,
+      }
+    } catch (error) {
+      console.error("❌ [GNEWS] Error fetching news:", error.message)
+      throw error
+    }
+  }
+
+  removeDuplicateArticles(articles) {
+    const seen = new Set()
+    const unique = []
+
+    for (const article of articles) {
+      // Create a simple hash based on title words
+      const titleWords = article.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .split(/\s+/)
+        .filter((word) => word.length > 3)
+        .sort()
+        .slice(0, 5) // Use first 5 significant words
+        .join(" ")
+
+      if (!seen.has(titleWords)) {
+        seen.add(titleWords)
+        unique.push(article)
+      }
+    }
+
+    return unique
+  }
 }
 
-module.exports = new GNewsService()
+async function fetchGNewsArticles(count = 10) {
+  const apiKey = process.env.GNEWS_API_KEY
+
+  if (!apiKey) {
+    console.error("❌ GNews API key not found")
+    return []
+  }
+
+  try {
+    console.log(`📰 Fetching ${count} articles from GNews API...`)
+
+    // Use multiple queries to get diverse content
+    const queries = [
+      "technology OR artificial intelligence OR AI",
+      "business OR economy OR market",
+      "science OR research OR innovation",
+      "health OR medical OR healthcare",
+      "climate OR environment OR sustainability",
+    ]
+
+    const allArticles = []
+    const articlesPerQuery = Math.ceil(count / queries.length)
+
+    for (const query of queries) {
+      if (allArticles.length >= count) break
+
+      try {
+        const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&lang=en&country=us&max=${articlesPerQuery}&apikey=${apiKey}`
+
+        console.log(`🔍 Searching GNews for: ${query}`)
+
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            "User-Agent": "TrendWise/1.0",
+          },
+        })
+
+        if (!response.ok) {
+          console.error(`❌ GNews API error: ${response.status} ${response.statusText}`)
+          continue
+        }
+
+        const data = await response.json()
+
+        if (data.articles && Array.isArray(data.articles)) {
+          const processedArticles = data.articles
+            .filter(
+              (article) =>
+                article.title &&
+                article.description &&
+                article.url &&
+                article.title.length > 10 &&
+                article.description.length > 50,
+            )
+            .map((article) => ({
+              title: article.title,
+              description: article.description,
+              content: article.content || article.description,
+              url: article.url,
+              image: article.image,
+              publishedAt: article.publishedAt,
+              source: {
+                name: article.source?.name || "GNews",
+                url: article.source?.url,
+              },
+            }))
+
+          allArticles.push(...processedArticles)
+          console.log(`✅ Found ${processedArticles.length} articles for query: ${query}`)
+        }
+
+        // Add delay between requests to respect rate limits
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      } catch (error) {
+        console.error(`❌ Error fetching articles for query "${query}":`, error.message)
+        continue
+      }
+    }
+
+    // Remove duplicates and limit results
+    const uniqueArticles = allArticles
+      .filter(
+        (article, index, self) => index === self.findIndex((a) => a.title === article.title || a.url === article.url),
+      )
+      .slice(0, count)
+
+    console.log(`✅ Successfully fetched ${uniqueArticles.length} unique articles from GNews`)
+    return uniqueArticles
+  } catch (error) {
+    console.error("❌ GNews service error:", error)
+    return []
+  }
+}
+
+module.exports = {
+  GNewsService,
+  fetchGNewsArticles,
+}

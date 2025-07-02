@@ -1,15 +1,18 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useSession } from "next-auth/react"
 import { motion } from "framer-motion"
-import { Button } from "@/components/ui/button"
+import Image from "next/image"
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, Bookmark, Share2, Clock, Calendar, Eye, User, Twitter } from "lucide-react"
+import { Calendar, Clock, Share2, Bookmark, Heart, Twitter, Eye, User } from "lucide-react"
+import { formatDateTime } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { TweetsSection } from "@/components/tweets-section"
+import { useToast } from "@/hooks/use-toast"
 import { useUserPreferences } from "@/hooks/use-user-preferences"
-import { toast } from "sonner"
+import type { Tweet } from "@/components/tweets-section"
 
 interface Article {
   _id: string
@@ -17,307 +20,413 @@ interface Article {
   content: string
   excerpt: string
   thumbnail: string
-  author: string
-  publishedAt: string
+  createdAt: string
   tags: string[]
-  imageUrl?: string
   category: string
   readTime: number
   views: number
   likes: number
   saves: number
-  tweets?: string[]
+  author?: string
+  trendData?: {
+    sourceName?: string
+    sourceUrl?: string
+    publishedAt?: string
+  }
+  media?: {
+    images?: string[]
+    videos?: string[]
+    tweets?: Tweet[]
+  }
+  twitterSearchUrl?: string
 }
 
 interface ArticleContentProps {
   article: Article
 }
 
-export function ArticleContent({ article }: ArticleContentProps) {
+export function ArticleContent({ article: initialArticle }: ArticleContentProps) {
   const { data: session } = useSession()
-  const { preferences, updatePreferences } = useUserPreferences()
-  const [isLiked, setIsLiked] = useState(false)
+  const router = useRouter()
+  const { toast } = useToast()
+  const { saveArticle, likeArticle, addToRecentlyViewed, isArticleSaved, isArticleLiked } = useUserPreferences()
+
+  const [article, setArticle] = useState(initialArticle)
   const [isSaved, setIsSaved] = useState(false)
-  const [likes, setLikes] = useState(article.likes || 0)
-  const [saves, setSaves] = useState(article.saves || 0)
-  const [views] = useState(article.views || 0)
+  const [isLiked, setIsLiked] = useState(false)
+  const [isLiking, setIsLiking] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
-  useEffect(() => {
-    // Check if user has liked or saved this article
-    setIsLiked(preferences.likedArticles.includes(article._id))
-    setIsSaved(preferences.savedArticles.includes(article._id))
-
-    // Add to recently viewed
-    updatePreferences({
-      recentlyViewed: [article._id, ...preferences.recentlyViewed.filter((id) => id !== article._id)].slice(0, 10),
-    })
-  }, [article._id, preferences, updatePreferences])
-
-  const handleLike = async () => {
-    if (!session) {
-      toast.error("Please sign in to like articles")
-      return
+  // Safely format date with fallback
+  const formatSafeDateTime = (dateString: string | undefined) => {
+    if (!dateString) return "Unknown date"
+    try {
+      return formatDateTime(dateString)
+    } catch (error) {
+      console.error("Date formatting error:", error)
+      return "Unknown date"
     }
+  }
+
+  // Update local state when preferences change
+  useEffect(() => {
+    if (session?.user && article?._id) {
+      try {
+        setIsSaved(isArticleSaved(article._id))
+        setIsLiked(isArticleLiked(article._id))
+      } catch (error) {
+        console.error("Error updating preferences:", error)
+      }
+    }
+  }, [article?._id, session?.user, isArticleSaved, isArticleLiked])
+
+  // Add to recently viewed when component mounts
+  useEffect(() => {
+    if (session?.user && article?._id) {
+      try {
+        addToRecentlyViewed(article._id)
+      } catch (error) {
+        console.error("Error adding to recently viewed:", error)
+      }
+    }
+  }, [article?._id, session?.user, addToRecentlyViewed])
+
+  // Refetch article from backend
+  const refetchArticle = async () => {
+    if (!article?._id) return
 
     try {
-      const newLikedState = !isLiked
-      const response = await fetch(`/api/articles/like/${article._id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ increment: newLikedState }),
-      })
-
+      const response = await fetch(`/api/articles/by-id/${article._id}`)
       if (response.ok) {
-        const data = await response.json()
-        setIsLiked(newLikedState)
-        setLikes(data.likes)
-
-        // Update user preferences
-        const updatedLiked = newLikedState
-          ? [...preferences.likedArticles, article._id]
-          : preferences.likedArticles.filter((id) => id !== article._id)
-
-        updatePreferences({ likedArticles: updatedLiked })
-        toast.success(newLikedState ? "Article liked!" : "Article unliked!")
+        const updated = await response.json()
+        setArticle(updated)
       }
     } catch (error) {
-      console.error("Error liking article:", error)
-      toast.error("Failed to like article")
+      console.error("Failed to refetch article:", error)
+    }
+  }
+
+  const handleShare = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: article.title,
+          url: window.location.href,
+        })
+      } else {
+        await navigator.clipboard.writeText(window.location.href)
+        toast({
+          title: "Link copied!",
+          description: "Article link has been copied to your clipboard.",
+        })
+      }
+    } catch (error) {
+      console.error("Share failed:", error)
+      toast({
+        title: "Share failed",
+        description: "Unable to share the article.",
+        variant: "destructive",
+      })
     }
   }
 
   const handleSave = async () => {
     if (!session) {
-      toast.error("Please sign in to save articles")
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save articles.",
+        variant: "destructive",
+      })
+      router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)
       return
     }
 
+    if (!article?._id) return
+
+    setIsSaving(true)
     try {
-      const newSavedState = !isSaved
-      const response = await fetch(`/api/articles/save/${article._id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ increment: newSavedState }),
+      const newSavedState = await saveArticle(article._id)
+      setIsSaved(newSavedState)
+      await refetchArticle()
+      toast({
+        title: newSavedState ? "Article saved!" : "Article unsaved",
+        description: newSavedState ? "Article added to your saved list." : "Article removed from your saved list.",
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        setIsSaved(newSavedState)
-        setSaves(data.saves)
-
-        // Update user preferences
-        const updatedSaved = newSavedState
-          ? [...preferences.savedArticles, article._id]
-          : preferences.savedArticles.filter((id) => id !== article._id)
-
-        updatePreferences({ savedArticles: updatedSaved })
-        toast.success(newSavedState ? "Article saved!" : "Article unsaved!")
-      }
     } catch (error) {
-      console.error("Error saving article:", error)
-      toast.error("Failed to save article")
+      console.error("Save error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update save status.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: article.title,
-          text: `Check out this article: ${article.title}`,
-          url: window.location.href,
-        })
-      } catch (error) {
-        console.log("Error sharing:", error)
-      }
-    } else {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(window.location.href)
-      toast.success("Link copied to clipboard!")
+  const handleLike = async () => {
+    if (!session) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to like articles.",
+        variant: "destructive",
+      })
+      router.push(`/login?callbackUrl=${encodeURIComponent(window.location.href)}`)
+      return
+    }
+
+    if (!article?._id) return
+
+    setIsLiking(true)
+    try {
+      const newLikedState = await likeArticle(article._id)
+      setIsLiked(newLikedState)
+      await refetchArticle()
+      toast({
+        title: newLikedState ? "Article liked!" : "Like removed",
+        description: newLikedState ? "Thanks for liking this article!" : "You unliked this article.",
+      })
+    } catch (error) {
+      console.error("Like error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update like status.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLiking(false)
     }
   }
 
   const openTwitterSearch = () => {
+    if (!article?.title) return
+
     const searchQuery = encodeURIComponent(article.title)
     const twitterUrl = `https://twitter.com/search?q=${searchQuery}`
     window.open(twitterUrl, "_blank")
   }
 
+  // Safety check for article data
+  if (!article) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-12">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Article not found</h1>
+          <p className="text-gray-600">The requested article could not be loaded.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <motion.article
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
-      className="max-w-4xl mx-auto"
-    >
-      {/* Article Header */}
-      <header className="mb-8">
+    <article className="max-w-4xl mx-auto px-4 py-12">
+      {/* Header */}
+      <motion.header
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        className="mb-8"
+      >
         <div className="flex flex-wrap gap-2 mb-4">
-          <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-            {article.category}
-          </Badge>
-          {article.tags.slice(0, 3).map((tag) => (
-            <Badge key={tag} variant="outline">
-              {tag}
+          {article.category && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+              {article.category}
             </Badge>
-          ))}
+          )}
+          {article.tags &&
+            article.tags.slice(0, 3).map((tag) => (
+              <Badge key={tag} variant="outline">
+                {tag}
+              </Badge>
+            ))}
         </div>
 
-        <h1 className="text-4xl md:text-5xl font-bold mb-6 leading-tight text-gray-900">{article.title}</h1>
+        <h1 className="text-4xl md:text-5xl font-bold mb-6 leading-tight">{article.title || "Untitled Article"}</h1>
 
-        <p className="text-xl text-gray-600 mb-6 leading-relaxed">{article.excerpt}</p>
+        {article.excerpt && <p className="text-xl text-gray-600 mb-6 leading-relaxed">{article.excerpt}</p>}
 
-        {/* Article Meta */}
-        <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500 mb-6">
-          <div className="flex items-center">
-            <User className="h-4 w-4 mr-2" />
-            <span>{article.author}</span>
-          </div>
-          <div className="flex items-center">
-            <Calendar className="h-4 w-4 mr-2" />
-            <span>{new Date(article.publishedAt).toLocaleDateString()}</span>
-          </div>
-          <div className="flex items-center">
-            <Clock className="h-4 w-4 mr-2" />
-            <span>{article.readTime} min read</span>
-          </div>
-          <div className="flex items-center">
-            <Eye className="h-4 w-4 mr-2" />
-            <span>{views.toLocaleString()} views</span>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button
-            variant={isLiked ? "default" : "outline"}
-            size="sm"
-            onClick={handleLike}
-            className="flex items-center space-x-2"
-          >
-            <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
-            {likes.toLocaleString()}
-          </Button>
-
-          <Button
-            variant={isSaved ? "default" : "outline"}
-            size="sm"
-            onClick={handleSave}
-            className="flex items-center space-x-2"
-          >
-            <Bookmark className={`h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
-            {saves.toLocaleString()}
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleShare}
-            className="flex items-center space-x-2 bg-transparent"
-          >
-            <Share2 className="h-4 w-4 mr-2" />
-            Share
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openTwitterSearch}
-            className="flex items-center space-x-2 bg-transparent"
-          >
-            <Twitter className="h-4 w-4 mr-2" />
-            View Real Tweets
-          </Button>
-        </div>
-
-        <Separator />
-
-        {/* Article Image */}
-        {article.imageUrl && (
-          <div className="mb-8">
-            <img
-              src={article.imageUrl || "/placeholder.svg"}
-              alt={article.title}
-              className="w-full h-64 md:h-96 object-cover rounded-lg shadow-lg"
-              onError={(e) => {
-                console.log("Image failed to load:", article.imageUrl)
-                e.currentTarget.src = "/placeholder.svg?height=400&width=800"
-              }}
-            />
-          </div>
-        )}
-      </header>
-
-      {/* Article Content */}
-      <div
-        className="prose prose-lg max-w-none mb-12"
-        dangerouslySetInnerHTML={{ __html: article.content }}
-        style={{
-          lineHeight: "1.8",
-          fontSize: "18px",
-        }}
-      />
-
-      {/* Article Footer */}
-      <footer className="border-t pt-8">
-        <div className="flex flex-wrap gap-2 mb-6">
-          <span className="text-sm font-medium text-gray-700 mr-2">Tags:</span>
-          {article.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="text-xs">
-              {tag}
-            </Badge>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Avatar className="h-10 w-10">
-              <AvatarImage src="/logo.png" alt="TrendWise AI" />
-              <AvatarFallback>TW</AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="font-medium text-gray-900">{article.author}</p>
-              <p className="text-sm text-gray-500">AI-powered content generation</p>
+        <div className="flex items-center justify-between flex-wrap gap-4 text-gray-600 mb-6">
+          <div className="flex items-center space-x-6">
+            <div className="flex items-center">
+              <User className="h-4 w-4 mr-2" />
+              <span>{article.author || "TrendWise AI"}</span>
+            </div>
+            <div className="flex items-center">
+              <Calendar className="h-4 w-4 mr-2" />
+              {formatSafeDateTime(article.createdAt)}
+            </div>
+            <div className="flex items-center">
+              <Clock className="h-4 w-4 mr-2" />
+              {article.readTime || 5} min read
+            </div>
+            <div className="flex items-center">
+              <Eye className="h-4 w-4 mr-2" />
+              {(article.views || 0).toLocaleString()} views
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <Button
-              variant={isLiked ? "default" : "outline"}
-              size="sm"
-              onClick={handleLike}
-              className="flex items-center space-x-2"
-            >
-              <Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />
-              Like
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" size="sm" onClick={handleShare}>
+              <Share2 className="h-4 w-4 mr-2" />
+              Share
             </Button>
 
             <Button
-              variant={isSaved ? "default" : "outline"}
+              variant="outline"
               size="sm"
               onClick={handleSave}
-              className="flex items-center space-x-2"
+              disabled={isSaving}
+              className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
             >
-              <Bookmark className={`h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
-              Save
+              <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
+              {isSaved ? "Saved" : "Save"} ({article.saves || 0})
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLike}
+              disabled={isLiking}
+              className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
+            >
+              <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
+              {isLiked ? "Liked" : "Like"} ({article.likes || 0})
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={openTwitterSearch}>
+              <Twitter className="h-4 w-4 mr-2" />
+              View Tweets
             </Button>
           </div>
         </div>
-      </footer>
 
-      {/* AI Generated Tweets */}
-      {article.tweets && article.tweets.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-xl font-semibold mb-4">Related Tweets</h3>
-          <div className="space-y-3">
-            {article.tweets.map((tweet, index) => (
-              <div key={index} className="bg-muted/50 p-4 rounded-lg border">
-                <p className="text-sm">{tweet}</p>
+        {/* Source Attribution */}
+        {article.trendData?.sourceName && (
+          <div className="bg-gray-50 border-l-4 border-blue-500 p-4 mb-6">
+            <p className="text-sm text-gray-600">
+              <strong>Source:</strong>{" "}
+              {article.trendData.sourceUrl ? (
+                <a
+                  href={article.trendData.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 underline"
+                >
+                  {article.trendData.sourceName}
+                </a>
+              ) : (
+                article.trendData.sourceName
+              )}
+              {article.trendData.publishedAt && (
+                <span className="ml-2">• Published {formatSafeDateTime(article.trendData.publishedAt)}</span>
+              )}
+            </p>
+          </div>
+        )}
+      </motion.header>
+
+      {/* Featured Image */}
+      {article.thumbnail && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="mb-8 rounded-xl overflow-hidden"
+        >
+          <Image
+            src={article.thumbnail || "/placeholder.svg"}
+            alt={article.title || "Article image"}
+            width={800}
+            height={400}
+            className="w-full h-auto"
+            priority
+            onError={(e) => {
+              console.log("Image failed to load:", article.thumbnail)
+              e.currentTarget.src = "/placeholder.svg?height=400&width=800"
+            }}
+          />
+        </motion.div>
+      )}
+
+      {/* Content */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: 0.4 }}
+        className="prose prose-lg max-w-none mb-12"
+        dangerouslySetInnerHTML={{ __html: article.content || "<p>Content not available.</p>" }}
+      />
+
+      {/* Media Gallery */}
+      {article.media && (article.media.images || article.media.videos) && (
+        <motion.section
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.6 }}
+          className="mt-12"
+        >
+          <h3 className="text-2xl font-bold mb-6">Related Media</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {article.media.images?.slice(0, 4).map((image, index) => (
+              <div key={index} className="rounded-lg overflow-hidden">
+                <Image
+                  src={image || "/placeholder.svg"}
+                  alt={`Related image ${index + 1}`}
+                  width={400}
+                  height={300}
+                  className="w-full h-auto"
+                  onError={(e) => {
+                    e.currentTarget.src = "/placeholder.svg?height=300&width=400"
+                  }}
+                />
               </div>
             ))}
           </div>
-        </div>
+        </motion.section>
       )}
-    </motion.article>
+
+      {/* Tweets Section */}
+      {article.media?.tweets && article.media.tweets.length > 0 && (
+        <TweetsSection
+          tweets={article.media.tweets}
+          title="Social Media Buzz"
+          query={article.title}
+          searchUrl={article.twitterSearchUrl}
+        />
+      )}
+
+      {/* Article Actions */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: 0.8 }}
+        className="mt-12 pt-8 border-t border-gray-200"
+      >
+        <div className="flex items-center justify-center space-x-4">
+          <Button variant="outline" onClick={handleShare}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share Article
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleSave}
+            disabled={isSaving}
+            className={isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
+          >
+            <Bookmark className={`h-4 w-4 mr-2 ${isSaved ? "fill-current" : ""}`} />
+            {isSaved ? "Saved" : "Save for Later"} ({article.saves || 0})
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleLike}
+            disabled={isLiking}
+            className={isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}
+          >
+            <Heart className={`h-4 w-4 mr-2 ${isLiked ? "fill-current" : ""}`} />
+            {isLiked ? "Liked" : "Like Article"} ({article.likes || 0})
+          </Button>
+        </div>
+      </motion.div>
+    </article>
   )
 }

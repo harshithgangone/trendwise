@@ -16,6 +16,7 @@ interface Article {
   thumbnail: string
   createdAt: string
   tags: string[]
+  category: string
   readTime: number
   views?: number
   featured?: boolean
@@ -48,6 +49,10 @@ export function ArticleCard({ article, index = 0 }: ArticleCardProps) {
             alt={article.title}
             fill
             className="object-cover transition-transform duration-500 group-hover:scale-110"
+            onError={(e) => {
+              console.log("Article card image failed to load:", article.thumbnail)
+              e.currentTarget.src = "/placeholder.svg?height=224&width=400"
+            }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
 
@@ -64,21 +69,25 @@ export function ArticleCard({ article, index = 0 }: ArticleCardProps) {
           {/* Category badge */}
           <div className="absolute top-4 right-4">
             <Badge variant="secondary" className="bg-white/90 text-gray-800 border-0 shadow-soft">
-              {article.tags[0] || "Trending"}
+              {article.category || article.tags[0] || "General"}
             </Badge>
           </div>
 
-          {/* Views counter */}
-          {article.views && (
-            <div className="absolute bottom-4 right-4 flex items-center text-white text-sm font-medium space-x-2">
+          {/* Engagement metrics */}
+          <div className="absolute bottom-4 right-4 flex items-center text-white text-sm font-medium space-x-3">
+            <div className="flex items-center">
               <Eye className="w-4 h-4 mr-1" />
-              {article.views.toLocaleString()}
-              <Heart className="w-4 h-4 ml-3 mr-1" />
-              {(article.likes ?? 0).toLocaleString()}
-              <Bookmark className="w-4 h-4 ml-3 mr-1" />
-              {(article.saves ?? 0).toLocaleString()}
+              {(article.views || 0).toLocaleString()}
             </div>
-          )}
+            <div className="flex items-center">
+              <Heart className="w-4 h-4 mr-1" />
+              {(article.likes || 0).toLocaleString()}
+            </div>
+            <div className="flex items-center">
+              <Bookmark className="w-4 h-4 mr-1" />
+              {(article.saves || 0).toLocaleString()}
+            </div>
+          </div>
         </div>
 
         <CardContent className="p-6">
@@ -91,7 +100,7 @@ export function ArticleCard({ article, index = 0 }: ArticleCardProps) {
 
           {/* Tags */}
           <div className="flex flex-wrap gap-2 mb-4">
-            {article.tags.slice(1, 4).map((tag) => (
+            {article.tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="outline" className="text-xs border-gray-300 text-gray-600 hover:bg-gray-100">
                 {tag}
               </Badge>
