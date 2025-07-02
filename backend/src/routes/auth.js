@@ -1,74 +1,59 @@
 const User = require("../models/User")
-const { OAuth2Client } = require("google-auth-library")
 
 async function authRoutes(fastify, options) {
-  const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
-
-  // Google Sign-In
+  // Google Sign-In endpoint
   fastify.post("/google-signin", async (request, reply) => {
     try {
-      const { credential } = request.body
+      const { email, name, picture, googleId } = request.body
 
-      if (!credential) {
+      if (!email || !name || !googleId) {
         return reply.status(400).send({
           success: false,
-          error: "Missing credential",
+          error: "Missing required fields",
         })
       }
 
-      fastify.log.info("🔐 [AUTH] Processing Google sign-in...")
-
-      // Verify the Google token
-      const ticket = await client.verifyIdToken({
-        idToken: credential,
-        audience: process.env.GOOGLE_CLIENT_ID,
+      // Check if user already exists
+      let user = await User.findOne({
+        $or: [{ email: email }, { googleId: googleId }],
       })
 
-      const payload = ticket.getPayload()
-      const { sub: googleId, email, name, picture } = payload
+      if (user) {
+        // Update existing user
+        user.name = name
+        user.picture = picture
+        user.lastLogin = new Date()
+        await user.save()
 
-      fastify.log.info(`🔐 [AUTH] Google token verified for: ${email}`)
-
-      // Check if user exists
-      let user = await User.findOne({ email })
-
-      if (!user) {
+        fastify.log.info(`👤 [AUTH] User signed in: ${email}`)
+      } else {
         // Create new user
         user = new User({
-          googleId,
           email,
           name,
-          avatar: picture,
-          isActive: true,
+          picture,
+          googleId,
+          provider: "google",
           createdAt: new Date(),
-          updatedAt: new Date(),
+          lastLogin: new Date(),
         })
 
         await user.save()
-        fastify.log.info(`✅ [AUTH] New user created: ${email}`)
-      } else {
-        // Update existing user
-        user.googleId = googleId
-        user.name = name
-        user.avatar = picture
-        user.lastLogin = new Date()
-        user.updatedAt = new Date()
-
-        await user.save()
-        fastify.log.info(`✅ [AUTH] Existing user updated: ${email}`)
+        fastify.log.info(`👤 [AUTH] New user created: ${email}`)
       }
 
       return {
         success: true,
-        user: {
+        data: {
           id: user._id,
           email: user.email,
           name: user.name,
-          avatar: user.avatar,
+          picture: user.picture,
         },
       }
     } catch (error) {
       fastify.log.error("❌ [AUTH] Google sign-in failed:", error)
+
       return reply.status(500).send({
         success: false,
         error: "Authentication failed",
@@ -92,18 +77,11 @@ async function authRoutes(fastify, options) {
 
       return {
         success: true,
-        user: {
-          id: user._id,
-          email: user.email,
-          name: user.name,
-          avatar: user.avatar,
-          savedArticles: user.savedArticles || [],
-          likedArticles: user.likedArticles || [],
-          createdAt: user.createdAt,
-        },
+        data: user,
       }
     } catch (error) {
       fastify.log.error("❌ [AUTH] Failed to fetch user profile:", error)
+
       return reply.status(500).send({
         success: false,
         error: "Failed to fetch profile",
@@ -111,16 +89,15 @@ async function authRoutes(fastify, options) {
     }
   })
 
-  // Update user profile
-  fastify.put("/profile/:userId", async (request, reply) => {
+  // Update user preferences
+  fastify.put("/preferences/:userId", async (request, reply) => {
     try {
       const { userId } = request.params
-      const { name, preferences } = request.body
+      const { preferences } = request.body
 
       const user = await User.findByIdAndUpdate(
         userId,
         {
-          name,
           preferences,
           updatedAt: new Date(),
         },
@@ -136,19 +113,14 @@ async function authRoutes(fastify, options) {
 
       return {
         success: true,
-        user: {
-          id: user._id,
-          email: user.email,
-          name: user.name,
-          avatar: user.avatar,
-          preferences: user.preferences,
-        },
+        data: user,
       }
     } catch (error) {
-      fastify.log.error("❌ [AUTH] Failed to update user profile:", error)
+      fastify.log.error("❌ [AUTH] Failed to update preferences:", error)
+
       return reply.status(500).send({
         success: false,
-        error: "Failed to update profile",
+        error: "Failed to update preferences",
       })
     }
   })

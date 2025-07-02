@@ -1,20 +1,7 @@
 const fastify = require("fastify")({
   logger:
     process.env.NODE_ENV === "production"
-      ? {
-          level: "info",
-          serializers: {
-            req: (req) => ({
-              method: req.method,
-              url: req.url,
-              hostname: req.hostname,
-              remoteAddress: req.ip,
-            }),
-            res: (res) => ({
-              statusCode: res.statusCode,
-            }),
-          },
-        }
+      ? true
       : {
           level: "info",
           transport: {

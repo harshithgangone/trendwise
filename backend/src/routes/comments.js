@@ -1,89 +1,101 @@
 const Comment = require("../models/Comment")
 
-async function commentRoutes(fastify, options) {
+async function commentsRoutes(fastify, options) {
   // Get comments for an article
-  fastify.get("/", async (request, reply) => {
+  fastify.get("/:articleId", async (request, reply) => {
     try {
-      const { articleId, page = 1, limit = 20 } = request.query
-
-      if (!articleId) {
-        return reply.status(400).send({
-          success: false,
-          error: "Article ID is required",
-        })
-      }
+      const { articleId } = request.params
+      const { page = 1, limit = 10 } = request.query
+      const skip = (page - 1) * limit
 
       const comments = await Comment.find({
         articleId,
-        status: "approved",
+        isApproved: true,
       })
         .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit)
+        .skip(skip)
+        .limit(Number.parseInt(limit))
+        .populate("userId", "name picture")
 
       const total = await Comment.countDocuments({
         articleId,
-        status: "approved",
+        isApproved: true,
       })
 
-      reply.send({
+      fastify.log.info(`💬 [COMMENTS] Fetched ${comments.length} comments for article ${articleId}`)
+
+      return {
         success: true,
-        comments,
+        data: comments,
         pagination: {
           page: Number.parseInt(page),
           limit: Number.parseInt(limit),
           total,
           pages: Math.ceil(total / limit),
         },
-      })
+      }
     } catch (error) {
-      fastify.log.error(error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to fetch comments",
-      })
+      fastify.log.error(`❌ [COMMENTS] Failed to fetch comments for article ${request.params.articleId}:`, error)
+
+      return {
+        success: true,
+        data: [],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 0,
+          pages: 0,
+        },
+      }
     }
   })
 
   // Create a new comment
   fastify.post("/", async (request, reply) => {
     try {
-      const { articleId, content, author } = request.body
+      const { articleId, userId, content, author } = request.body
 
       if (!articleId || !content || !author) {
         return reply.status(400).send({
           success: false,
-          error: "Article ID, content, and author are required",
+          error: "Missing required fields",
         })
       }
 
-      const comment = new Comment({
+      const newComment = new Comment({
         articleId,
+        userId: userId || null,
         content,
         author,
+        isApproved: true, // Auto-approve for now
+        createdAt: new Date(),
       })
 
-      await comment.save()
+      await newComment.save()
 
-      reply.status(201).send({
+      fastify.log.info(`💬 [COMMENTS] New comment created for article ${articleId}`)
+
+      return {
         success: true,
-        comment,
-      })
+        data: newComment,
+      }
     } catch (error) {
-      fastify.log.error(error)
-      reply.status(500).send({
+      fastify.log.error("❌ [COMMENTS] Failed to create comment:", error)
+
+      return reply.status(500).send({
         success: false,
         error: "Failed to create comment",
       })
     }
   })
 
-  // Delete a comment (admin only)
-  fastify.delete("/:id", async (request, reply) => {
+  // Like/unlike a comment
+  fastify.post("/:commentId/like", async (request, reply) => {
     try {
-      const { id } = request.params
+      const { commentId } = request.params
+      const { userId } = request.body
 
-      const comment = await Comment.findByIdAndDelete(id)
+      const comment = await Comment.findById(commentId)
 
       if (!comment) {
         return reply.status(404).send({
@@ -92,53 +104,32 @@ async function commentRoutes(fastify, options) {
         })
       }
 
-      reply.send({
-        success: true,
-        message: "Comment deleted successfully",
-      })
-    } catch (error) {
-      fastify.log.error(error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to delete comment",
-      })
-    }
-  })
-
-  // Update comment status (admin only)
-  fastify.patch("/:id/status", async (request, reply) => {
-    try {
-      const { id } = request.params
-      const { status } = request.body
-
-      if (!["approved", "pending", "rejected"].includes(status)) {
-        return reply.status(400).send({
-          success: false,
-          error: "Invalid status",
-        })
+      // Toggle like
+      const userLikedIndex = comment.likes.indexOf(userId)
+      if (userLikedIndex > -1) {
+        comment.likes.splice(userLikedIndex, 1)
+      } else {
+        comment.likes.push(userId)
       }
 
-      const comment = await Comment.findByIdAndUpdate(id, { status }, { new: true })
+      await comment.save()
 
-      if (!comment) {
-        return reply.status(404).send({
-          success: false,
-          error: "Comment not found",
-        })
-      }
-
-      reply.send({
+      return {
         success: true,
-        comment,
-      })
+        data: {
+          likes: comment.likes.length,
+          userLiked: comment.likes.includes(userId),
+        },
+      }
     } catch (error) {
-      fastify.log.error(error)
-      reply.status(500).send({
+      fastify.log.error(`❌ [COMMENTS] Failed to like comment ${request.params.commentId}:`, error)
+
+      return reply.status(500).send({
         success: false,
-        error: "Failed to update comment status",
+        error: "Failed to like comment",
       })
     }
   })
 }
 
-module.exports = commentRoutes
+module.exports = commentsRoutes

@@ -5,12 +5,14 @@ const UnsplashService = require("./unsplashService")
 const Article = require("../models/Article")
 const slugify = require("slugify")
 const gnewsService = require("./gnewsService")
+const unsplashService = require("./unsplashService")
 
 class TrendBot {
   constructor() {
     this.isActive = false
-    this.isRunning = false
-    this.cronJob = null
+    this.intervalId = null
+    this.lastRun = null
+    this.articlesGenerated = 0
     this.stats = {
       totalRuns: 0,
       successfulRuns: 0,
@@ -34,7 +36,16 @@ class TrendBot {
     console.log(`🔧 [TrendBot] Config: ${JSON.stringify(this.config, null, 2)}`)
   }
 
-  start() {
+  getStatus() {
+    return {
+      active: this.isActive,
+      lastRun: this.lastRun,
+      articlesGenerated: this.articlesGenerated,
+      nextRun: this.intervalId ? new Date(Date.now() + 30 * 60 * 1000) : null,
+    }
+  }
+
+  async start() {
     if (this.isActive) {
       console.log("🤖 [TRENDBOT] Already running")
       return
@@ -43,22 +54,18 @@ class TrendBot {
     console.log("🤖 [TRENDBOT] Starting TrendBot...")
     this.isActive = true
 
-    // Run immediately on startup
-    this.generateArticles().catch((error) => {
-      console.error("❌ [TRENDBOT] Initial run failed:", error)
-    })
+    // Generate articles immediately on startup
+    await this.generateArticles()
 
-    // Schedule to run every 30 minutes
-    this.cronJob = cron.schedule("*/30 * * * *", async () => {
-      console.log("🤖 [TRENDBOT] Scheduled run starting...")
-      try {
+    // Set up interval to run every 30 minutes
+    this.intervalId = setInterval(
+      async () => {
         await this.generateArticles()
-      } catch (error) {
-        console.error("❌ [TRENDBOT] Scheduled run failed:", error)
-      }
-    })
+      },
+      30 * 60 * 1000,
+    ) // 30 minutes
 
-    console.log("✅ [TRENDBOT] Started successfully - will run every 30 minutes")
+    console.log("✅ [TRENDBOT] TrendBot started successfully")
   }
 
   stop() {
@@ -67,260 +74,172 @@ class TrendBot {
       return
     }
 
-    console.log("🤖 [TRENDBOT] Stopping...")
+    console.log("🤖 [TRENDBOT] Stopping TrendBot...")
     this.isActive = false
 
-    if (this.cronJob) {
-      this.cronJob.destroy()
-      this.cronJob = null
+    if (this.intervalId) {
+      clearInterval(this.intervalId)
+      this.intervalId = null
     }
 
-    console.log("✅ [TRENDBOT] Stopped successfully")
+    console.log("✅ [TRENDBOT] TrendBot stopped")
   }
 
   async generateArticles() {
-    if (!this.isActive) {
-      console.log("🤖 [TRENDBOT] Bot is not active, skipping generation")
-      return
-    }
-
-    console.log("🤖 [TRENDBOT] Starting article generation...")
-    this.stats.lastRun = new Date()
-
     try {
-      // Check if we have recent articles (less than 1 hour old)
-      const recentArticles = await Article.countDocuments({
-        createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
-      })
+      console.log("🤖 [TRENDBOT] Starting article generation cycle...")
+      this.lastRun = new Date()
 
-      if (recentArticles >= 5) {
-        console.log(`🤖 [TRENDBOT] Found ${recentArticles} recent articles, skipping generation`)
-        return
+      // Define trending topics for different categories
+      const trendingTopics = {
+        technology: [
+          "Artificial Intelligence Breakthrough",
+          "Quantum Computing Advances",
+          "Cybersecurity Threats 2024",
+          "Electric Vehicle Innovation",
+          "5G Network Expansion",
+        ],
+        business: [
+          "Global Market Trends",
+          "Cryptocurrency Regulation",
+          "Remote Work Evolution",
+          "Sustainable Business Practices",
+          "Supply Chain Innovations",
+        ],
+        health: [
+          "Medical Research Breakthrough",
+          "Mental Health Awareness",
+          "Fitness Technology Trends",
+          "Nutrition Science Updates",
+          "Healthcare Innovation",
+        ],
+        science: [
+          "Climate Change Research",
+          "Space Exploration Mission",
+          "Renewable Energy Development",
+          "Ocean Conservation Efforts",
+          "Scientific Discovery",
+        ],
+        entertainment: [
+          "Streaming Platform Updates",
+          "Celebrity News",
+          "Movie Industry Trends",
+          "Music Technology",
+          "Gaming Innovation",
+        ],
       }
 
-      // Generate 3-5 articles
-      const articlesToGenerate = Math.floor(Math.random() * 3) + 3
-      console.log(`🤖 [TRENDBOT] Generating ${articlesToGenerate} articles...`)
+      let totalGenerated = 0
 
-      const promises = []
-      for (let i = 0; i < articlesToGenerate; i++) {
-        promises.push(this.generateSingleArticle())
+      // Generate articles for each category
+      for (const [category, topics] of Object.entries(trendingTopics)) {
+        try {
+          console.log(`🤖 [TRENDBOT] Generating articles for ${category}...`)
+
+          // Select 2-3 random topics from each category
+          const selectedTopics = topics.sort(() => 0.5 - Math.random()).slice(0, 2)
+
+          for (const topic of selectedTopics) {
+            try {
+              // Generate article content using Groq
+              const articleData = await GroqService.generateArticle(topic, category)
+
+              // Get image from Unsplash
+              let imageUrl = "/placeholder.svg?height=400&width=600"
+              try {
+                const unsplashImage = await UnsplashService.searchImage(topic)
+                if (unsplashImage) {
+                  imageUrl = unsplashImage
+                }
+              } catch (imageError) {
+                console.log(`⚠️ [TRENDBOT] Could not fetch image for ${topic}, using placeholder`)
+              }
+
+              // Create article object
+              const articleSlug = topic
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, "")
+                .replace(/\s+/g, "-")
+                .substring(0, 50)
+
+              const newArticle = new Article({
+                title: articleData.title,
+                content: articleData.content,
+                summary: articleData.summary,
+                category: category,
+                slug: `${articleSlug}-${Date.now()}`,
+                author: "TrendBot AI",
+                imageUrl: imageUrl,
+                tags: [category, "trending", "ai-generated"],
+                isPublished: true,
+                publishedAt: new Date(),
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                views: Math.floor(Math.random() * 100) + 10,
+                likes: Math.floor(Math.random() * 50) + 5,
+                trending: Math.random() > 0.5,
+                featured: Math.random() > 0.7,
+              })
+
+              // Save to database
+              await newArticle.save()
+              totalGenerated++
+              this.articlesGenerated++
+
+              console.log(`✅ [TRENDBOT] Created article: ${articleData.title}`)
+
+              // Add delay between articles to avoid overwhelming the system
+              await new Promise((resolve) => setTimeout(resolve, 2000))
+            } catch (articleError) {
+              console.error(`❌ [TRENDBOT] Failed to create article for ${topic}:`, articleError.message)
+            }
+          }
+
+          // Add delay between categories
+          await new Promise((resolve) => setTimeout(resolve, 3000))
+        } catch (categoryError) {
+          console.error(`❌ [TRENDBOT] Failed to process category ${category}:`, categoryError.message)
+        }
       }
 
-      const results = await Promise.allSettled(promises)
-      const successful = results.filter((r) => r.status === "fulfilled").length
-      const failed = results.filter((r) => r.status === "rejected").length
+      console.log(`🎉 [TRENDBOT] Article generation completed! Generated ${totalGenerated} new articles`)
 
-      this.stats.articlesGenerated += successful
-
-      console.log(`✅ [TRENDBOT] Generation complete: ${successful} successful, ${failed} failed`)
-      console.log(`📊 [TRENDBOT] Total articles generated: ${this.stats.articlesGenerated}`)
+      // Update article stats
+      await this.updateArticleStats()
     } catch (error) {
-      console.error("❌ [TRENDBOT] Article generation failed:", error)
+      console.error("❌ [TRENDBOT] Article generation failed:", error.message)
     }
   }
 
-  async generateSingleArticle() {
+  async updateArticleStats() {
     try {
-      // Get trending topics from GNews
-      let trendingTopics = []
-      try {
-        trendingTopics = await gnewsService.getTrendingTopics()
-      } catch (error) {
-        console.warn("⚠️ [TRENDBOT] Failed to get trending topics, using fallback")
-      }
-
-      // Select a random category
-      const category = this.config.categories[Math.floor(Math.random() * this.config.categories.length)]
-
-      // Generate article title and content
-      const title = this.generateTitle(category, trendingTopics)
-      const slug = this.generateSlug(title)
-
-      console.log(`🤖 [TRENDBOT] Generating article: "${title}"`)
-
-      // Check if article with this slug already exists
-      const existingArticle = await Article.findOne({ slug })
-      if (existingArticle) {
-        console.log(`⚠️ [TRENDBOT] Article with slug "${slug}" already exists, skipping`)
-        return
-      }
-
-      // Generate content using Groq
-      const content = await GroqService.generateArticleContent(title, category, trendingTopics.slice(0, 3))
-      const summary = await GroqService.generateSummary(content, 200)
-
-      // Get image from Unsplash
-      let imageUrl = "/placeholder.svg?height=400&width=600"
-      try {
-        imageUrl = await UnsplashService.getImage(category.toLowerCase())
-      } catch (error) {
-        console.warn("⚠️ [TRENDBOT] Failed to get image, using placeholder")
-      }
-
-      // Create article
-      const article = new Article({
-        title,
-        slug,
-        content,
-        summary,
-        category,
-        author: "TrendBot AI",
-        imageUrl,
-        tags: this.generateTags(category, trendingTopics),
-        status: "published",
-        publishedAt: new Date(),
-        createdAt: new Date(),
-        views: Math.floor(Math.random() * 1000) + 100,
-        likes: Math.floor(Math.random() * 50) + 5,
-        saves: Math.floor(Math.random() * 10) + 2,
-        featured: Math.random() > 0.7, // 30% chance of being featured
-        readTime: Math.ceil(content.length / 200), // Estimate read time
-        seo: {
-          metaTitle: title,
-          metaDescription: summary,
-          keywords: (this.generateTags(category, trendingTopics) || []).join(", "),
-        },
-        source: {
-          type: "trend",
-          originalCategory: category,
-          generatedBy: "TrendBot",
-          generatedAt: new Date(),
-        },
+      // Update trending status based on views and recency
+      const recentArticles = await Article.find({
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
       })
+        .sort({ views: -1, likes: -1 })
+        .limit(10)
 
-      await article.save()
-      console.log(`✅ [TRENDBOT] Article created: "${title}"`)
+      // Mark top articles as trending
+      for (const article of recentArticles) {
+        article.trending = true
+        await article.save()
+      }
 
-      return article
+      console.log(`📊 [TRENDBOT] Updated trending status for ${recentArticles.length} articles`)
     } catch (error) {
-      console.error("❌ [TRENDBOT] Failed to generate single article:", error)
-      throw error
+      console.error("❌ [TRENDBOT] Failed to update article stats:", error.message)
     }
   }
 
-  generateTitle(category, trends = []) {
-    const titleTemplates = {
-      Technology: [
-        "Revolutionary AI Breakthrough Changes Everything",
-        "New Tech Innovation Disrupts Industry",
-        "Major Software Update Brings Exciting Features",
-        "Cybersecurity Alert: New Threats Emerge",
-        "Tech Giants Announce Major Partnership",
-      ],
-      Business: [
-        "Market Analysis: Key Trends to Watch",
-        "Major Corporate Merger Announced",
-        "Economic Indicators Show Positive Growth",
-        "Startup Raises Record-Breaking Funding",
-        "Industry Leaders Share Future Predictions",
-      ],
-      Health: [
-        "Medical Breakthrough Offers New Hope",
-        "Health Study Reveals Surprising Results",
-        "New Treatment Shows Promising Results",
-        "Public Health Officials Issue Important Update",
-        "Wellness Trends Gaining Global Attention",
-      ],
-      Science: [
-        "Scientific Discovery Challenges Current Understanding",
-        "Research Team Makes Groundbreaking Finding",
-        "Climate Study Reveals Critical Data",
-        "Space Exploration Reaches New Milestone",
-        "Environmental Research Shows Promising Solutions",
-      ],
-      Sports: [
-        "Championship Game Delivers Thrilling Finish",
-        "Star Athlete Breaks Long-Standing Record",
-        "Major Trade Shakes Up League Dynamics",
-        "Underdog Team Surprises Everyone",
-        "Sports Technology Revolutionizes Training",
-      ],
-      Entertainment: [
-        "Blockbuster Film Breaks Box Office Records",
-        "Celebrity News Captures Global Attention",
-        "Streaming Platform Announces Major Content",
-        "Music Industry Sees Surprising Trend",
-        "Award Show Delivers Memorable Moments",
-      ],
-      Politics: [
-        "Policy Changes Could Impact Millions",
-        "Political Leaders Meet for Important Summit",
-        "Election Results Bring Unexpected Outcomes",
-        "New Legislation Sparks National Debate",
-        "International Relations See Major Development",
-      ],
-      "World News": [
-        "Global Event Captures International Attention",
-        "International Cooperation Addresses Crisis",
-        "Cultural Exchange Program Shows Success",
-        "World Leaders Address Global Challenges",
-        "International Study Reveals Important Findings",
-      ],
-    }
-
-    const templates = titleTemplates[category] || titleTemplates["World News"]
-    let title = templates[Math.floor(Math.random() * templates.length)]
-
-    // Sometimes incorporate trending topics
-    if (trends.length > 0 && Math.random() > 0.5) {
-      const trend = trends[Math.floor(Math.random() * trends.length)]
-      title = `${trend}: ${title}`
-    }
-
-    return title
-  }
-
-  generateSlug(title) {
-    return slugify(title, {
-      lower: true,
-      strict: true,
-      remove: /[*+~.()'"!:@]/g,
-    }).substring(0, 100)
-  }
-
-  generateTags(category, trends = []) {
-    const baseTags = [category.toLowerCase().replace(" ", "-")]
-
-    // Add some trending topics as tags
-    const trendTags = trends.slice(0, 2).map((trend) =>
-      trend
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .replace(/\s+/g, "-"),
-    )
-
-    // Add some random relevant tags
-    const relevantTags = ["breaking-news", "analysis", "update", "trending", "featured"]
-    const randomTags = relevantTags.slice(0, Math.floor(Math.random() * 3) + 1)
-
-    return [...baseTags, ...trendTags, ...randomTags].filter(Boolean).slice(0, 5)
-  }
-
-  getStatus() {
-    return {
-      isActive: this.isActive,
-      isRunning: this.isRunning,
-      stats: this.stats,
-      config: this.config,
-      health: {
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        lastError: this.stats.errors.length > 0 ? this.stats.errors[this.stats.errors.length - 1] : null,
-      },
-    }
-  }
-
-  getStats() {
-    return {
-      ...this.stats,
-      successRate: this.stats.totalRuns > 0 ? (this.stats.successfulRuns / this.stats.totalRuns) * 100 : 0,
-      averageArticlesPerRun:
-        this.stats.successfulRuns > 0 ? this.stats.articlesGenerated / this.stats.successfulRuns : 0,
+  async getGeneratedArticles(limit = 10) {
+    try {
+      return await Article.find({ author: "TrendBot AI" }).sort({ createdAt: -1 }).limit(limit)
+    } catch (error) {
+      console.error("❌ [TRENDBOT] Failed to fetch generated articles:", error.message)
+      return []
     }
   }
 }
 
-// Create singleton instance
-const trendBotInstance = new TrendBot()
-module.exports = trendBotInstance
+module.exports = new TrendBot()
