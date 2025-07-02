@@ -49,9 +49,10 @@ const mockArticles = [
   },
 ]
 
+// ✅ SOLUTION 1: Use request.nextUrl.searchParams (RECOMMENDED)
 export async function GET(request: NextRequest) {
   try {
-    // Use searchParams directly from NextRequest instead of parsing URL
+    // ✅ Use searchParams directly from NextRequest - this is static-friendly
     const { searchParams } = request.nextUrl
     const page = searchParams.get("page") || "1"
     const limit = searchParams.get("limit") || "10"
@@ -72,7 +73,8 @@ export async function GET(request: NextRequest) {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        next: { revalidate: 60 }, // Revalidate every minute instead of no-store
+        // ✅ Use Next.js 14 cache control instead of cache: 'no-store'
+        next: { revalidate: 60 }, // Cache for 60 seconds
         // Add timeout to prevent hanging
         signal: AbortSignal.timeout(10000),
       })
