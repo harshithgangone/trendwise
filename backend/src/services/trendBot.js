@@ -1,254 +1,480 @@
 const cron = require("node-cron")
-const trendCrawler = require("./trendCrawler")
-const groqService = require("./groqService")
-const unsplashService = require("./unsplashService")
+const TrendCrawler = require("./trendCrawler")
+const GroqService = require("./groqService")
+const GNewsService = require("./gnewsService")
+const UnsplashService = require("./unsplashService")
 const Article = require("../models/Article")
-const slugify = require("slugify")
 
 class TrendBot {
   constructor() {
     this.isActive = false
+    this.isRunning = false
     this.job = null
-    this.runInterval = "0 */6 * * *" // Run every 6 hours
-    this.lastRun = null
-    this.nextRun = null
     this.stats = {
       totalRuns: 0,
       successfulRuns: 0,
+      failedRuns: 0,
       articlesGenerated: 0,
-      errors: 0,
+      lastRun: null,
+      lastError: null,
+      averageRunTime: 0,
+    }
+
+    // Initialize services
+    this.trendCrawler = new TrendCrawler()
+    this.groqService = new GroqService()
+    this.gnewsService = new GNewsService()
+    this.unsplashService = new UnsplashService()
+
+    // Configuration
+    this.config = {
+      interval: "*/5 * * * *", // Every 5 minutes
+      maxArticlesPerRun: 3,
+      minArticleLength: 800,
+      maxArticleLength: 2000,
+      categories: ["technology", "business", "health", "science"],
+      retryAttempts: 3,
+      retryDelay: 5000,
+    }
+
+    console.log("🤖 [TrendBot] Initialized with configuration:", this.config)
+  }
+
+  // Start the automated bot
+  async start() {
+    try {
+      if (this.isActive) {
+        console.log("⚠️ [TrendBot] Bot is already active")
+        return { success: false, message: "Bot is already running" }
+      }
+
+      console.log("🚀 [TrendBot] Starting automated content generation...")
+
+      // Schedule the cron job
+      this.job = cron.schedule(
+        this.config.interval,
+        async () => {
+          if (!this.isRunning) {
+            await this.runContentGeneration()
+          } else {
+            console.log("⏳ [TrendBot] Previous run still in progress, skipping...")
+          }
+        },
+        {
+          scheduled: false,
+          timezone: "UTC",
+        },
+      )
+
+      this.job.start()
+      this.isActive = true
+
+      console.log("✅ [TrendBot] Bot started successfully")
+      console.log(`⏰ [TrendBot] Scheduled to run every 5 minutes`)
+      console.log(`📊 [TrendBot] Will generate up to ${this.config.maxArticlesPerRun} articles per run`)
+
+      return {
+        success: true,
+        message: "TrendBot started successfully",
+        config: this.config,
+        nextRun: this.getNextRunTime(),
+      }
+    } catch (error) {
+      console.error("❌ [TrendBot] Failed to start bot:", error.message)
+      return { success: false, message: `Failed to start bot: ${error.message}` }
     }
   }
 
-  // Calculate next run time manually
-  calculateNextRun() {
+  // Stop the automated bot
+  async stop() {
+    try {
+      if (!this.isActive) {
+        console.log("⚠️ [TrendBot] Bot is not currently active")
+        return { success: false, message: "Bot is not running" }
+      }
+
+      console.log("🛑 [TrendBot] Stopping automated content generation...")
+
+      if (this.job) {
+        this.job.stop()
+        this.job.destroy()
+        this.job = null
+      }
+
+      this.isActive = false
+
+      console.log("✅ [TrendBot] Bot stopped successfully")
+      return { success: true, message: "TrendBot stopped successfully" }
+    } catch (error) {
+      console.error("❌ [TrendBot] Failed to stop bot:", error.message)
+      return { success: false, message: `Failed to stop bot: ${error.message}` }
+    }
+  }
+
+  // Run content generation manually
+  async runContentGeneration() {
+    const startTime = Date.now()
+    this.isRunning = true
+    this.stats.totalRuns++
+    this.stats.lastRun = new Date()
+
+    try {
+      console.log("🔄 [TrendBot] Starting content generation cycle...")
+      console.log(`📅 [TrendBot] Run #${this.stats.totalRuns} at ${new Date().toISOString()}`)
+
+      // Step 1: Health check services
+      await this.performHealthChecks()
+
+      // Step 2: Fetch trending topics
+      const trends = await this.fetchTrendingTopics()
+      if (trends.length === 0) {
+        throw new Error("No trending topics found")
+      }
+
+      // Step 3: Filter and select best trends
+      const selectedTrends = await this.selectBestTrends(trends)
+      console.log(`🎯 [TrendBot] Selected ${selectedTrends.length} trends for article generation`)
+
+      // Step 4: Generate articles
+      const generatedArticles = []
+      for (let i = 0; i < Math.min(selectedTrends.length, this.config.maxArticlesPerRun); i++) {
+        try {
+          const trend = selectedTrends[i]
+          console.log(`📝 [TrendBot] Generating article ${i + 1}/${this.config.maxArticlesPerRun}: "${trend.title}"`)
+
+          const article = await this.generateSingleArticle(trend)
+          if (article) {
+            generatedArticles.push(article)
+            this.stats.articlesGenerated++
+            console.log(`✅ [TrendBot] Article generated successfully: "${article.title}"`)
+          }
+
+          // Add delay between generations to avoid rate limits
+          if (i < selectedTrends.length - 1) {
+            await this.delay(2000)
+          }
+        } catch (error) {
+          console.error(
+            `❌ [TrendBot] Failed to generate article for trend "${selectedTrends[i]?.title}":`,
+            error.message,
+          )
+        }
+      }
+
+      // Step 5: Update statistics
+      const runTime = Date.now() - startTime
+      this.updateRunStatistics(runTime, true)
+
+      console.log(`🎉 [TrendBot] Content generation completed successfully!`)
+      console.log(`📊 [TrendBot] Generated ${generatedArticles.length} articles in ${runTime}ms`)
+      console.log(`📈 [TrendBot] Total articles generated: ${this.stats.articlesGenerated}`)
+
+      return {
+        success: true,
+        articlesGenerated: generatedArticles.length,
+        runTime,
+        articles: generatedArticles.map((a) => ({ title: a.title, slug: a.slug })),
+      }
+    } catch (error) {
+      const runTime = Date.now() - startTime
+      this.updateRunStatistics(runTime, false, error)
+
+      console.error("❌ [TrendBot] Content generation failed:", error.message)
+      console.error("🔍 [TrendBot] Error stack:", error.stack)
+
+      return {
+        success: false,
+        error: error.message,
+        runTime,
+      }
+    } finally {
+      this.isRunning = false
+      console.log(`⏱️ [TrendBot] Content generation cycle completed in ${Date.now() - startTime}ms`)
+    }
+  }
+
+  // Perform health checks on all services
+  async performHealthChecks() {
+    console.log("🏥 [TrendBot] Performing service health checks...")
+
+    const checks = [
+      { name: "TrendCrawler", service: this.trendCrawler },
+      { name: "GroqService", service: this.groqService },
+      { name: "GNewsService", service: this.gnewsService },
+    ]
+
+    for (const check of checks) {
+      try {
+        if (check.service.healthCheck) {
+          const health = await check.service.healthCheck()
+          console.log(`${health.status === "healthy" ? "✅" : "⚠️"} [TrendBot] ${check.name}: ${health.status}`)
+        } else {
+          console.log(`✅ [TrendBot] ${check.name}: Available`)
+        }
+      } catch (error) {
+        console.warn(`⚠️ [TrendBot] ${check.name} health check failed:`, error.message)
+      }
+    }
+  }
+
+  // Fetch trending topics from multiple sources
+  async fetchTrendingTopics() {
+    console.log("📡 [TrendBot] Fetching trending topics from multiple sources...")
+
+    try {
+      // Primary source: Enhanced trends from crawler
+      let trends = await this.trendCrawler.getEnhancedTrends()
+      console.log(`📊 [TrendBot] Fetched ${trends.length} trends from TrendCrawler`)
+
+      // Secondary source: GNews if primary fails or returns few results
+      if (trends.length < 5) {
+        console.log("🔄 [TrendBot] Fetching additional trends from GNews...")
+        try {
+          const gnewsTrends = await this.gnewsService.fetchTrendingNews()
+          trends = [...trends, ...gnewsTrends]
+          console.log(`📊 [TrendBot] Added ${gnewsTrends.length} trends from GNews`)
+        } catch (error) {
+          console.warn("⚠️ [TrendBot] GNews fetch failed:", error.message)
+        }
+      }
+
+      // Remove duplicates
+      const uniqueTrends = this.removeDuplicateTrends(trends)
+      console.log(`🎯 [TrendBot] Final unique trends count: ${uniqueTrends.length}`)
+
+      return uniqueTrends
+    } catch (error) {
+      console.error("❌ [TrendBot] Failed to fetch trending topics:", error.message)
+      throw error
+    }
+  }
+
+  // Remove duplicate trends based on title similarity
+  removeDuplicateTrends(trends) {
+    const unique = []
+    const seenTitles = new Set()
+
+    for (const trend of trends) {
+      const normalizedTitle = trend.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .trim()
+      const titleWords = normalizedTitle.split(/\s+/).slice(0, 5).join(" ")
+
+      if (!seenTitles.has(titleWords)) {
+        seenTitles.add(titleWords)
+        unique.push(trend)
+      }
+    }
+
+    console.log(`🔄 [TrendBot] Removed ${trends.length - unique.length} duplicate trends`)
+    return unique
+  }
+
+  // Select best trends for article generation
+  async selectBestTrends(trends) {
+    console.log("🎯 [TrendBot] Selecting best trends for article generation...")
+
+    // Filter trends based on quality criteria
+    const qualityTrends = trends.filter((trend) => {
+      const hasGoodTitle = trend.title && trend.title.length >= 20 && trend.title.length <= 150
+      const hasDescription = trend.description && trend.description.length >= 50
+      const isRecent = trend.publishedAt && Date.now() - new Date(trend.publishedAt) < 24 * 60 * 60 * 1000 // 24 hours
+      const hasKeywords = trend.keywords && trend.keywords.length >= 2
+
+      return hasGoodTitle && hasDescription && isRecent && hasKeywords
+    })
+
+    console.log(`✅ [TrendBot] Filtered to ${qualityTrends.length} quality trends`)
+
+    // Check for existing articles to avoid duplicates
+    const newTrends = []
+    for (const trend of qualityTrends) {
+      const slug = this.generateSlug(trend.title)
+      const existingArticle = await Article.findOne({ slug })
+
+      if (!existingArticle) {
+        newTrends.push(trend)
+      } else {
+        console.log(`⏭️ [TrendBot] Skipping duplicate: "${trend.title}"`)
+      }
+    }
+
+    console.log(`🆕 [TrendBot] Found ${newTrends.length} new trends (no existing articles)`)
+
+    // Sort by trend score and select top trends
+    const sortedTrends = newTrends
+      .sort((a, b) => (b.trendScore || 0) - (a.trendScore || 0))
+      .slice(0, this.config.maxArticlesPerRun * 2) // Get extra in case some fail
+
+    console.log(`🏆 [TrendBot] Selected top ${sortedTrends.length} trends for generation`)
+    return sortedTrends
+  }
+
+  // Generate a single article from trend data
+  async generateSingleArticle(trend) {
+    try {
+      console.log(`🔨 [TrendBot] Starting article generation for: "${trend.title}"`)
+
+      // Step 1: Generate article content with AI
+      const articleContent = await this.groqService.generateArticle({
+        title: trend.title,
+        description: trend.description,
+        category: trend.category,
+        keywords: trend.keywords,
+        source: trend.source,
+      })
+
+      if (!articleContent || !articleContent.title || !articleContent.content) {
+        throw new Error("AI generated incomplete article content")
+      }
+
+      console.log(`✅ [TrendBot] AI content generated: ${articleContent.content.length} characters`)
+
+      // Step 2: Get featured image
+      let featuredImage = null
+      try {
+        featuredImage = await this.unsplashService.searchImage(trend.keywords[0] || trend.title)
+        console.log(`🖼️ [TrendBot] Featured image found: ${featuredImage?.url || "none"}`)
+      } catch (error) {
+        console.warn(`⚠️ [TrendBot] Failed to get featured image:`, error.message)
+      }
+
+      // Step 3: Create article object
+      const slug = this.generateSlug(articleContent.title)
+      const articleData = {
+        title: articleContent.title,
+        slug,
+        excerpt: articleContent.excerpt || trend.description.substring(0, 200),
+        content: articleContent.content,
+        author: {
+          name: "TrendWise AI",
+          email: "ai@trendwise.com",
+        },
+        category: trend.category || "general",
+        tags: [...new Set([...trend.keywords, ...(articleContent.tags || [])])].slice(0, 10),
+        media: {
+          images: featuredImage
+            ? [
+                {
+                  url: featuredImage.url,
+                  alt: featuredImage.alt || articleContent.title,
+                  caption: featuredImage.caption || "",
+                },
+              ]
+            : [],
+          videos: [],
+          tweets: [],
+        },
+        seo: {
+          metaTitle: articleContent.metaTitle || articleContent.title,
+          metaDescription: articleContent.metaDescription || articleContent.excerpt,
+          keywords: trend.keywords.join(", "),
+          ogTitle: articleContent.title,
+          ogDescription: articleContent.excerpt || trend.description.substring(0, 160),
+        },
+        stats: {
+          views: 0,
+          likes: 0,
+          shares: 0,
+          comments: 0,
+        },
+        status: "published",
+        publishedAt: new Date(),
+        source: {
+          originalUrl: trend.link,
+          originalTitle: trend.title,
+          publishedAt: trend.publishedAt,
+        },
+      }
+
+      // Step 4: Save to database
+      const savedArticle = await Article.create(articleData)
+      console.log(`💾 [TrendBot] Article saved to database with ID: ${savedArticle._id}`)
+
+      return savedArticle
+    } catch (error) {
+      console.error(`❌ [TrendBot] Article generation failed for "${trend.title}":`, error.message)
+      throw error
+    }
+  }
+
+  // Generate URL-friendly slug
+  generateSlug(title) {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim("-")
+      .substring(0, 60)
+  }
+
+  // Update run statistics
+  updateRunStatistics(runTime, success, error = null) {
+    if (success) {
+      this.stats.successfulRuns++
+    } else {
+      this.stats.failedRuns++
+      this.stats.lastError = {
+        message: error?.message || "Unknown error",
+        timestamp: new Date(),
+      }
+    }
+
+    // Update average run time
+    this.stats.averageRunTime = Math.round(
+      (this.stats.averageRunTime * (this.stats.totalRuns - 1) + runTime) / this.stats.totalRuns,
+    )
+
+    console.log(`📊 [TrendBot] Updated statistics:`, {
+      totalRuns: this.stats.totalRuns,
+      successRate: `${Math.round((this.stats.successfulRuns / this.stats.totalRuns) * 100)}%`,
+      averageRunTime: `${this.stats.averageRunTime}ms`,
+      articlesGenerated: this.stats.articlesGenerated,
+    })
+  }
+
+  // Get next scheduled run time
+  getNextRunTime() {
+    if (!this.isActive || !this.job) return null
+
+    // Calculate next run based on cron schedule (every 5 minutes)
     const now = new Date()
     const nextRun = new Date(now)
-
-    // For "0 */6 * * *" (every 6 hours at minute 0)
-    // Find the next 6-hour interval
-    const currentHour = now.getHours()
-    const nextHour = Math.ceil((currentHour + 1) / 6) * 6
-
-    if (nextHour >= 24) {
-      nextRun.setDate(nextRun.getDate() + 1)
-      nextRun.setHours(0, 0, 0, 0)
-    } else {
-      nextRun.setHours(nextHour, 0, 0, 0)
-    }
+    nextRun.setMinutes(Math.ceil(now.getMinutes() / 5) * 5, 0, 0)
 
     return nextRun
   }
 
-  async start() {
-    if (this.isActive) {
-      console.log("🤖 TrendBot already active")
-      return { success: false, message: "Bot is already running" }
-    }
-
-    console.log("🚀 Starting TrendBot...")
-    this.isActive = true
-
-    // Calculate next run time
-    this.nextRun = this.calculateNextRun()
-
-    // Schedule the job - but don't run immediately to let existing articles load first
-    this.job = cron.schedule(
-      this.runInterval,
-      async () => {
-        await this.runCycle()
-        // Update next run time after each execution
-        this.nextRun = this.calculateNextRun()
-      },
-      {
-        scheduled: true,
-        timezone: "America/New_York",
-      },
-    )
-
-    console.log(`✅ TrendBot scheduled to run ${this.runInterval}`)
-    console.log(`⏰ Next scheduled run: ${this.nextRun.toISOString()}`)
-
-    return {
-      success: true,
-      message: "TrendBot started successfully",
-      nextRun: this.nextRun.toISOString(),
-    }
-  }
-
-  async stop() {
-    if (!this.isActive) {
-      console.log("🤖 TrendBot already inactive")
-      return { success: false, message: "Bot is not running" }
-    }
-
-    console.log("🛑 Stopping TrendBot...")
-    this.isActive = false
-
-    if (this.job) {
-      this.job.stop()
-      this.job = null
-    }
-
-    this.nextRun = null
-
-    // Cleanup resources
-    await trendCrawler.cleanup()
-
-    console.log("✅ TrendBot stopped successfully")
-    return { success: true, message: "TrendBot stopped successfully" }
-  }
-
-  async runCycle() {
-    if (!this.isActive) {
-      console.log("⚠️ Bot is inactive, skipping cycle.")
-      return
-    }
-
-    console.log("🔄 Starting new cycle...")
-    this.stats.totalRuns++
-    this.lastRun = new Date()
-
-    try {
-      // Step 1: Crawl trends
-      const trendResult = await trendCrawler.crawlTrends()
-
-      if (!trendResult.success || !trendResult.trends || trendResult.trends.length === 0) {
-        throw new Error(`Trend crawling failed: ${trendResult.error || "No trends found"}`)
-      }
-
-      console.log(`✅ Found ${trendResult.trends.length} trends from ${trendResult.source}`)
-
-      // Step 2: Process each trend
-      let articlesCreatedThisCycle = 0
-      for (const trendData of trendResult.trends) {
-        try {
-          // Ensure slug is generated correctly and is unique
-          const baseSlug = slugify(trendData.title, {
-            lower: true,
-            strict: true,
-            remove: /[*+~.()'"!:@]/g,
-          })
-          let slug = baseSlug
-          let counter = 1
-          while (await Article.findOne({ slug })) {
-            slug = `${baseSlug}-${counter}`
-            counter++
-          }
-
-          // Check if article already exists by title (as a secondary check)
-          const existingArticle = await Article.findOne({ title: trendData.title })
-          if (existingArticle) {
-            console.log(`⏭️ Article "${trendData.title}" already exists, skipping.`)
-            continue
-          }
-
-          // Generate enhanced content using the correct method
-          const articleResult = await groqService.generateArticle(trendData)
-
-          // Get featured image (prioritize existing image)
-          let thumbnail = trendData.thumbnail
-          if (!thumbnail || thumbnail.includes("placeholder")) {
-            try {
-              thumbnail = await unsplashService.getFeaturedImage(trendData.title)
-            } catch (imageError) {
-              console.warn("⚠️ Image fetch failed, using placeholder")
-              thumbnail = "/placeholder.svg?height=400&width=600"
-            }
-          }
-
-          // Prepare media data with proper structure
-          const mediaImages = new Set(trendData.media?.images || [])
-          if (thumbnail && !mediaImages.has(thumbnail)) {
-            mediaImages.add(thumbnail)
-          }
-
-          const mediaData = {
-            images: Array.from(mediaImages),
-            videos: trendData.media?.videos || [],
-            tweets: (trendData.media?.tweets || []).map((tweet) => ({
-              username: tweet.username || "Unknown",
-              handle: tweet.handle || "@unknown",
-              text: tweet.text || "",
-              link: tweet.link || "#",
-              timestamp: new Date(tweet.timestamp || Date.now()),
-            })),
-          }
-
-          // Create article using the generated content
-          const articleData = {
-            title: articleResult.title || trendData.title,
-            slug: slug,
-            content: articleResult.content,
-            excerpt: articleResult.excerpt || trendData.excerpt,
-            thumbnail: thumbnail,
-            tags: articleResult.tags || trendData.tags,
-            meta: articleResult.meta || trendData.meta,
-            media: mediaData,
-            readTime: articleResult.readTime || trendData.readTime,
-            views: trendData.views || 0,
-            likes: 0,
-            saves: 0,
-            status: "published",
-            trendData: trendData.trendData,
-            featured: trendData.featured || false,
-            author: trendData.author || "TrendWise AI",
-            createdAt: trendData.createdAt || new Date(),
-          }
-
-          const article = new Article(articleData)
-          await article.save()
-
-          articlesCreatedThisCycle++
-          this.stats.articlesGenerated++
-          console.log(`✅ Created article: "${articleData.title}"`)
-        } catch (articleError) {
-          console.error(`❌ Failed to create article for "${trendData.title}":`, articleError.message)
-          this.stats.errors++
-        }
-        // Small delay between processing articles to avoid overwhelming APIs
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-      }
-
-      this.stats.successfulRuns++
-      console.log(`🎉 Cycle completed successfully. Created ${articlesCreatedThisCycle} new articles`)
-    } catch (error) {
-      console.error("❌ Cycle failed:", error.message)
-      this.stats.errors++
-    }
-
-    console.log(
-      `📊 Stats: ${this.stats.successfulRuns}/${this.stats.totalRuns} successful runs, ${this.stats.articlesGenerated} articles generated`,
-    )
-  }
-
-  async triggerManualRun() {
-    console.log("🎯 Manual run triggered")
-    await this.runCycle()
-    return {
-      success: true,
-      message: "Manual run completed successfully",
-      timestamp: new Date().toISOString(),
-    }
-  }
-
+  // Get bot status and statistics
   getStatus() {
     return {
       isActive: this.isActive,
-      lastRun: this.lastRun,
-      nextRun: this.nextRun ? this.nextRun.toISOString() : null,
+      isRunning: this.isRunning,
       stats: this.stats,
-      runInterval: this.runInterval,
-      crawlerStatus: trendCrawler.getStatus(),
+      config: this.config,
+      nextRun: this.getNextRunTime(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
     }
   }
 
-  getStats() {
-    return this.stats
+  // Add delay utility
+  async delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  // Cleanup resources
+  async cleanup() {
+    console.log("🧹 [TrendBot] Cleaning up resources...")
+
+    if (this.isActive) {
+      await this.stop()
+    }
+
+    console.log("✅ [TrendBot] Cleanup completed")
   }
 }
 
-const trendBotInstance = new TrendBot()
-
-// Export the instance directly
-module.exports = trendBotInstance
+module.exports = TrendBot

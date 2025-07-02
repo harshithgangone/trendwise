@@ -1,266 +1,319 @@
-const Groq = require("groq-sdk")
-
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY || "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",
-})
+const axios = require('axios')
 
 class GroqService {
   constructor() {
-    console.log("🤖 Groq AI Service initialized")
+    this.apiKey = process.env.GROQ_API_KEY
+    this.baseUrl = 'https://api.groq.com/openai/v1'
+    this.model = 'llama3-8b-8192' // Fast and efficient model
+    this.requestTimeout = 30000 // 30 seconds
+    this.maxRetries = 2
   }
 
-  async generateArticle(trendData) {
+  async generateArticleContent(article) {
+    console.log('🤖 [GROQ SERVICE] Starting article content generation...')
+    console.log(`📝 [GROQ SERVICE] Article: "${article.title?.substring(0, 50)}..."`)
+    console.log(`🔑 [GROQ SERVICE] API Key: ${this.apiKey ? 'Present' : 'Missing'}`)
+
+    if (!this.apiKey) {
+      console.log('⚠️ [GROQ SERVICE] No API key found, using fallback content')
+      return this.generateFallbackContent(article)
+    }
+
     try {
-      console.log(`🚀 Groq AI: Starting article generation for "${trendData.query}"`)
-
-      const prompt = this.createArticlePrompt(trendData)
-      console.log(`🔗 Groq AI: Connecting to Groq API...`)
-
-      const chatCompletion = await groq.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content: `You are a professional content writer and SEO expert. Create high-quality, engaging articles about trending topics. 
-            
-            CRITICAL: You must respond with ONLY valid JSON. No markdown, no code blocks, no extra text. Just pure JSON.`,
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        model: "llama3-8b-8192",
-        temperature: 0.7,
-        max_tokens: 2500,
-        top_p: 1,
-        stream: false,
-      })
-
-      const content = chatCompletion.choices[0]?.message?.content
-      if (!content) {
-        throw new Error("No content generated from Groq API")
+      const prompt = this.createArticlePrompt(article)
+      console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
+      
+      const response = await this.makeGroqRequest(prompt)
+      
+      if (response && response.content) {
+        console.log(`✅ [GROQ SERVICE] Successfully generated ${response.content.length} characters of content`)
+        return {
+          success: true,
+          content: response.content,
+          seo: response.seo || this.generateSEOData(article),
+          source: 'groq_ai'
+        }
       }
-
-      console.log(`✅ Groq AI: Successfully connected and generated content (${content.length} characters)`)
-
-      const parsedArticle = this.parseArticleContent(content, trendData)
-      console.log(`🎯 Groq AI: Article processed - "${parsedArticle.title}" (${parsedArticle.readTime} min read)`)
-
-      return parsedArticle
+      
+      throw new Error('No content received from Groq API')
     } catch (error) {
-      console.error(`❌ Groq AI: Generation failed -`, error.message)
-      console.log(`🔄 Groq AI: Using fallback template`)
-      return this.generateFallbackArticle(trendData)
+      console.error('❌ [GROQ SERVICE] Content generation failed:', error.message)
+      console.log('🔄 [GROQ SERVICE] Falling back to template content...')
+      return this.generateFallbackContent(article)
     }
   }
 
   async generateTweetContent(prompt) {
+    console.log('🐦 [GROQ SERVICE] Generating tweet content...')
+    console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
+
+    if (!this.apiKey) {
+      console.log('⚠️ [GROQ SERVICE] No API key, returning null for tweets')
+      return null
+    }
+
     try {
-      console.log(`🐦 Groq AI: Generating tweet content...`)
-
-      const chatCompletion = await groq.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content: `You are a social media expert who creates realistic Twitter content. Generate diverse, engaging tweets that sound like real people. 
-            
-            CRITICAL: Respond with ONLY valid JSON. No markdown, no code blocks, no extra text.`,
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        model: "llama3-8b-8192",
-        temperature: 0.8,
-        max_tokens: 1000,
-        top_p: 1,
-        stream: false,
-      })
-
-      const content = chatCompletion.choices[0]?.message?.content
-      if (!content) {
-        throw new Error("No tweet content generated")
+      const response = await this.makeGroqRequest(prompt, 'json')
+      
+      if (response) {
+        console.log('✅ [GROQ SERVICE] Tweet content generated successfully')
+        return response
       }
-
-      console.log(`✅ Groq AI: Tweet content generated successfully`)
-
-      // Parse the JSON response
-      const cleanContent = this.cleanJsonContent(content)
-      const parsed = JSON.parse(cleanContent)
-
-      console.log(`🎯 Groq AI: Generated ${parsed.tweets?.length || 0} tweets`)
-      return parsed
+      
+      return null
     } catch (error) {
-      console.error(`❌ Groq AI: Tweet generation failed -`, error.message)
+      console.error('❌ [GROQ SERVICE] Tweet generation failed:', error.message)
       return null
     }
   }
 
-  cleanJsonContent(content) {
-    // Clean the content aggressively
-    let cleanContent = content.trim()
-
-    // Remove markdown code blocks
-    cleanContent = cleanContent.replace(/```json\s*/g, "").replace(/```\s*/g, "")
-
-    // Remove any leading/trailing non-JSON content
-    const jsonStart = cleanContent.indexOf("{")
-    const jsonEnd = cleanContent.lastIndexOf("}") + 1
-
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-      cleanContent = cleanContent.substring(jsonStart, jsonEnd)
+  async makeGroqRequest(prompt, responseFormat = 'text') {
+    console.log('📡 [GROQ SERVICE] Making API request to Groq...')
+    
+    const requestData = {
+      model: this.model,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: responseFormat === 'json' ? 1000 : 2000,
+      temperature: 0.7,
+      top_p: 0.9
     }
 
-    // Fix common JSON issues
-    cleanContent = cleanContent
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
-      .replace(/\n/g, "\\n") // Escape newlines
-      .replace(/\r/g, "\\r") // Escape carriage returns
-      .replace(/\t/g, "\\t") // Escape tabs
+    if (responseFormat === 'json') {
+      requestData.response_format = { type: 'json_object' }
+    }
 
-    return cleanContent
+    console.log(`🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`)
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        console.log(`🔄 [GROQ SERVICE] Attempt ${attempt}/${this.maxRetries}`)
+        
+        const response = await axios.post(`${this.baseUrl}/chat/completions`, requestData, {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: this.requestTimeout
+        })
+
+        console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
+        console.log(`📊 [GROQ SERVICE] Usage: ${JSON.stringify(response.data.usage || {})}`)
+
+        if (response.data && response.data.choices && response.data.choices[0]) {
+          const content = response.data.choices[0].message.content
+
+          if (responseFormat === 'json') {
+            try {
+              const parsed = JSON.parse(content)
+              console.log('✅ [GROQ SERVICE] JSON response parsed successfully')
+              return parsed
+            } catch (parseError) {
+              console.error('❌ [GROQ SERVICE] JSON parsing failed:', parseError.message)
+              throw new Error('Invalid JSON response from API')
+            }
+          } else {
+            return { content }
+          }
+        }
+
+        throw new Error('No content in API response')
+      } catch (error) {
+        console.error(`❌ [GROQ SERVICE] Attempt ${attempt} failed:`, error.message)
+        
+        if (error.response) {
+          console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
+          console.error(`📊 [GROQ SERVICE] API Error Data:`, error.response.data)
+          
+          // Don't retry on certain errors
+          if (error.response.status === 401 || error.response.status === 403) {
+            throw new Error('Authentication failed - check API key')
+          }
+        }
+
+        if (attempt === this.maxRetries) {
+          throw error
+        }
+
+        // Wait before retry
+        const waitTime = attempt * 2000
+        console.log(`⏳ [GROQ SERVICE] Waiting ${waitTime}ms before retry...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
+    }
   }
 
-  createArticlePrompt(trendData) {
-    return `Create a professional article about: "${trendData.query}"
+  createArticlePrompt(article) {
+    const title = article.title || 'Untitled Article'
+    const excerpt = article.excerpt || article.description || 'No description available'
+    const category = article.category || 'General'
+    const tags = Array.isArray(article.tags) ? article.tags.join(', ') : 'technology, news'
+
+    return `Write a comprehensive, SEO-optimized blog article about: "${title}"
+
+Article Details:
+- Category: ${category}
+- Tags: ${tags}
+- Brief Description: ${excerpt}
 
 Requirements:
-- Professional, engaging tone
-- 600-900 words
-- SEO optimized
-- Include H1, H2, H3 headings
-- Use proper HTML structure
-- Include relevant keywords naturally
+1. Write 800-1200 words of engaging, informative content
+2. Use proper markdown formatting with H2 and H3 headings
+3. Include an introduction, main content sections, and conclusion
+4. Make it SEO-friendly with natural keyword integration
+5. Write in a professional, engaging tone
+6. Include relevant insights and analysis
+7. Add practical takeaways for readers
 
-Context:
-- Search Volume: ${trendData.searchVolume || "High"}
-- Geographic Interest: ${trendData.geo || "Global"}
-- Related Topics: ${trendData.relatedTopics?.join(", ") || "Technology, Innovation"}
+Structure the article with:
+- Compelling introduction
+- 3-4 main sections with H2 headings
+- Subsections with H3 headings where appropriate
+- Conclusion with key takeaways
+- Use bullet points and numbered lists where relevant
 
-Respond with ONLY this JSON structure (no markdown, no code blocks):
-{
-  "title": "Professional article title",
-  "content": "Full HTML content with proper structure",
-  "excerpt": "Compelling summary (150-200 characters)",
-  "meta": {
-    "description": "SEO meta description (150-160 characters)",
-    "keywords": "relevant, keywords, separated, by, commas"
-  },
-  "tags": ["Tag1", "Tag2", "Tag3"],
-  "readTime": 6
-}`
+Focus on providing value to readers while maintaining readability and SEO best practices.`
   }
 
-  parseArticleContent(content, trendData) {
-    try {
-      console.log(`🔍 Groq AI: Parsing generated content...`)
+  generateFallbackContent(article) {
+    console.log('🎭 [GROQ SERVICE] Generating fallback content...')
+    
+    const title = article.title || 'Trending Topic'
+    const excerpt = article.excerpt || article.description || 'Latest developments in this trending topic'
+    const category = article.category || 'Technology'
+    const tags = Array.isArray(article.tags) ? article.tags : ['technology', 'news']
 
-      const cleanContent = this.cleanJsonContent(content)
-      const parsed = JSON.parse(cleanContent)
-      console.log(`✅ Groq AI: Content parsed successfully`)
+    const content = `# ${title}
 
-      // Validate and return with defaults
-      const result = {
-        title: parsed.title || `${trendData.query}: Latest Insights and Analysis`,
-        content: parsed.content || this.generateFallbackContent(trendData),
-        excerpt:
-          parsed.excerpt || `Explore the latest developments in ${trendData.query} and their impact on the industry.`,
-        meta: parsed.meta || {
-          description: `Comprehensive analysis of ${trendData.query} trends and market insights.`,
-          keywords: `${trendData.query}, trends, analysis, market, insights`,
-        },
-        tags: parsed.tags || [trendData.query.split(" ")[0], "Trending", "Analysis"],
-        readTime: parsed.readTime || 6,
-      }
+${excerpt}
 
-      console.log(`🎉 Groq AI: Article generation complete - AI content ready`)
-      return result
-    } catch (error) {
-      console.error(`❌ Groq AI: Parsing failed -`, error.message)
-      console.log(`🔄 Groq AI: Using fallback structure`)
-      return this.generateFallbackArticle(trendData)
-    }
-  }
+## Overview
 
-  generateFallbackArticle(trendData) {
-    console.log(`📝 Groq AI: Generating fallback article for "${trendData.query}"`)
+This trending topic has been gaining significant attention across various platforms and communities. Our analysis reveals several key insights and developments that are worth exploring in detail.
 
-    const title = `${trendData.query}: Comprehensive Market Analysis and Future Outlook`
-    const content = this.generateFallbackContent(trendData)
+## Key Developments
 
-    const result = {
-      title,
+### Current Situation
+The current landscape shows interesting patterns and trends that indicate significant changes in the industry. These developments are particularly noteworthy because they represent a shift in how we approach and understand this domain.
+
+### Market Impact
+The implications of these changes extend beyond immediate effects, potentially reshaping entire market segments and influencing future strategies across multiple industries.
+
+### Expert Perspectives
+Industry experts have shared valuable insights about these developments, highlighting both opportunities and challenges that lie ahead.
+
+## Analysis and Insights
+
+### Technical Aspects
+From a technical standpoint, these developments showcase innovative approaches and methodologies that could become standard practices in the near future.
+
+### Business Implications
+Organizations are closely monitoring these trends to understand how they might impact their operations, strategies, and competitive positioning.
+
+### Future Outlook
+Looking ahead, several factors will likely influence how these trends evolve and what impact they will have on the broader ecosystem.
+
+## Key Takeaways
+
+- **Innovation Drive**: These developments represent significant innovation in the field
+- **Market Opportunity**: New opportunities are emerging for businesses and individuals
+- **Strategic Importance**: Organizations should consider these trends in their strategic planning
+- **Continuous Evolution**: The landscape continues to evolve rapidly, requiring ongoing attention
+
+## Conclusion
+
+As we continue to monitor these developments, it's clear that staying informed and adaptable will be crucial for success. The trends we're seeing today are likely to shape the future of this domain significantly.
+
+*Stay tuned for more updates and analysis on this evolving topic.*`
+
+    console.log(`✅ [GROQ SERVICE] Generated ${content.length} characters of fallback content`)
+
+    return {
+      success: false,
       content,
-      excerpt: `Discover the latest trends and insights about ${trendData.query}, including market analysis and future predictions.`,
-      meta: {
-        description: `In-depth analysis of ${trendData.query} trends, market impact, and future outlook for industry professionals.`,
-        keywords: `${trendData.query}, market analysis, trends, insights, future outlook, industry`,
-      },
-      tags: [trendData.query.split(" ")[0], "Market Analysis", "Trends", "Industry"],
-      readTime: 6,
+      seo: this.generateSEOData(article),
+      source: 'fallback_template',
+      reason: 'API unavailable or failed'
+    }
+  }
+
+  generateSEOData(article) {
+    const title = article.title || 'Trending News'
+    const excerpt = article.excerpt || article.description || 'Latest trending news and updates'
+    const tags = Array.isArray(article.tags) ? article.tags : ['technology', 'news']
+
+    return {
+      metaTitle: title.length > 60 ? title.substring(0, 57) + '...' : title,
+      metaDescription: excerpt.length > 160 ? excerpt.substring(0, 157) + '...' : excerpt,
+      keywords: tags.join(', '),
+      ogTitle: title,
+      ogDescription: excerpt.substring(0, 200),
+      twitterTitle: title.substring(0, 70),
+      twitterDescription: excerpt.substring(0, 200)
+    }
+  }
+
+  async testConnection() {
+    console.log('🔧 [GROQ SERVICE] Testing connection...')
+    
+    if (!this.apiKey) {
+      console.log('⚠️ [GROQ SERVICE] No API key configured')
+      return { 
+        success: false, 
+        error: 'No API key configured',
+        fallbackAvailable: true
+      }
     }
 
-    console.log(`✅ Groq AI: Fallback article ready`)
-    return result
-  }
-
-  generateFallbackContent(trendData) {
-    return `
-      <h1>${trendData.query}: Comprehensive Market Analysis and Future Outlook</h1>
-      
-      <p>The landscape of <strong>${trendData.query}</strong> has been experiencing unprecedented growth and transformation. With search volumes reaching ${trendData.searchVolume || "significant levels"} across ${trendData.geo || "global"} markets, this trend represents a pivotal shift in how industries approach innovation and development.</p>
-      
-      <h2>Current Market Dynamics</h2>
-      <p>Recent analysis reveals that ${trendData.query} has emerged as a critical factor driving change across multiple sectors. Industry leaders and market analysts are closely monitoring developments in this space, recognizing its potential to reshape traditional business models and create new opportunities for growth.</p>
-      
-      <h3>Key Market Indicators</h3>
-      <ul>
-        <li><strong>Search Volume Growth:</strong> ${trendData.searchVolume || "High"} interest levels indicate strong market momentum</li>
-        <li><strong>Geographic Reach:</strong> Significant adoption across ${trendData.geo || "global"} markets</li>
-        <li><strong>Industry Impact:</strong> Cross-sector implications driving widespread attention</li>
-        ${trendData.relatedTopics?.map((topic) => `<li><strong>${topic}:</strong> Contributing to the overall ecosystem development</li>`).join("") || ""}
-      </ul>
-      
-      <h2>Industry Applications and Use Cases</h2>
-      <p>The practical applications of ${trendData.query} span numerous industries, from technology and healthcare to finance and manufacturing. Organizations are increasingly investing in research and development to harness the potential of this emerging trend.</p>
-      
-      <h3>Sector-Specific Implementations</h3>
-      <p>Leading companies across various sectors are implementing ${trendData.query} solutions to enhance operational efficiency, improve customer experiences, and drive innovation. These implementations are setting new industry standards and creating competitive advantages for early adopters.</p>
-      
-      <h2>Future Outlook and Predictions</h2>
-      <p>Market forecasts suggest that ${trendData.query} will continue to gain momentum over the coming years. Industry experts predict significant developments that could fundamentally alter how businesses operate and compete in the global marketplace.</p>
-      
-      <h3>Strategic Considerations</h3>
-      <p>Organizations looking to capitalize on ${trendData.query} trends should consider developing comprehensive strategies that address both immediate opportunities and long-term implications. This includes investing in talent development, technology infrastructure, and strategic partnerships.</p>
-      
-      <h2>Conclusion</h2>
-      <p>As ${trendData.query} continues to evolve, staying informed about the latest developments and market trends will be crucial for business success. Organizations that proactively adapt to these changes will be best positioned to thrive in an increasingly competitive landscape.</p>
-    `
-  }
-
-  async generateSummary(text, maxLength = 200) {
     try {
-      console.log(`📝 Groq AI: Generating summary...`)
-
-      const chatCompletion = await groq.chat.completions.create({
-        messages: [
-          {
-            role: "user",
-            content: `Create a compelling summary of this text in ${maxLength} characters or less: ${text}`,
-          },
-        ],
-        model: "llama3-8b-8192",
-        temperature: 0.3,
-        max_tokens: 100,
+      console.log('📡 [GROQ SERVICE] Testing API connection...')
+      
+      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
+        model: this.model,
+        messages: [{ role: 'user', content: 'Hello, this is a connection test.' }],
+        max_tokens: 10
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
       })
 
-      const summary = chatCompletion.choices[0]?.message?.content || text.substring(0, maxLength)
-      console.log(`✅ Groq AI: Summary generated`)
-      return summary
+      console.log('✅ [GROQ SERVICE] Connection test successful')
+      return { 
+        success: true, 
+        model: this.model,
+        status: response.status
+      }
     } catch (error) {
-      console.error(`❌ Groq AI: Summary generation failed -`, error.message)
-      return text.substring(0, maxLength)
+      console.error('❌ [GROQ SERVICE] Connection test failed:', error.message)
+      
+      let errorDetails = { error: error.message }
+      if (error.response) {
+        errorDetails.status = error.response.status
+        errorDetails.statusText = error.response.statusText
+      }
+
+      return { 
+        success: false, 
+        fallbackAvailable: true,
+        ...errorDetails
+      }
+    }
+  }
+
+  getStatus() {
+    return {
+      apiKey: !!this.apiKey,
+      model: this.model,
+      baseUrl: this.baseUrl,
+      timeout: this.requestTimeout,
+      maxRetries: this.maxRetries
     }
   }
 }
