@@ -1,52 +1,34 @@
 const Comment = require("../models/Comment")
-const User = require("../models/User")
 
-async function commentsRoutes(fastify, options) {
+async function commentRoutes(fastify, options) {
   // Get comments for an article
-  fastify.get("/comments/:articleId", async (request, reply) => {
+  fastify.get("/", async (request, reply) => {
     try {
-      const { articleId } = request.params
-      const { page = 1, limit = 20 } = request.query
-      const skip = (page - 1) * limit
+      const { articleId, page = 1, limit = 20 } = request.query
+
+      if (!articleId) {
+        return reply.status(400).send({
+          success: false,
+          error: "Article ID is required",
+        })
+      }
 
       const comments = await Comment.find({
-        article: articleId,
-        status: "active",
-        parentComment: null, // Only top-level comments
+        articleId,
+        status: "approved",
       })
-        .populate("user", "name avatar")
         .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number.parseInt(limit))
-        .lean()
-
-      // Get replies for each comment
-      const commentsWithReplies = await Promise.all(
-        comments.map(async (comment) => {
-          const replies = await Comment.find({
-            parentComment: comment._id,
-            status: "active",
-          })
-            .populate("user", "name avatar")
-            .sort({ createdAt: 1 })
-            .lean()
-
-          return {
-            ...comment,
-            replies,
-          }
-        }),
-      )
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
 
       const total = await Comment.countDocuments({
-        article: articleId,
-        status: "active",
-        parentComment: null,
+        articleId,
+        status: "approved",
       })
 
       reply.send({
         success: true,
-        comments: commentsWithReplies,
+        comments,
         pagination: {
           page: Number.parseInt(page),
           limit: Number.parseInt(limit),
@@ -55,154 +37,108 @@ async function commentsRoutes(fastify, options) {
         },
       })
     } catch (error) {
-      fastify.log.error("Error fetching comments:", error)
-
-      // Mock comments for fallback
-      const mockComments = [
-        {
-          _id: "comment1",
-          content: "Great article! Very informative.",
-          user: {
-            _id: "user1",
-            name: "John Doe",
-            avatar: "/placeholder.svg?height=40&width=40",
-          },
-          createdAt: new Date(),
-          likes: 5,
-          replies: [
-            {
-              _id: "reply1",
-              content: "I agree! Thanks for sharing.",
-              user: {
-                _id: "user2",
-                name: "Jane Smith",
-                avatar: "/placeholder.svg?height=40&width=40",
-              },
-              createdAt: new Date(),
-              likes: 2,
-            },
-          ],
-        },
-      ]
-
-      reply.send({
-        success: true,
-        comments: mockComments,
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: 1,
-          pages: 1,
-        },
+      fastify.log.error(error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch comments",
       })
     }
   })
 
-  // Add a new comment
-  fastify.post("/comments", async (request, reply) => {
+  // Create a new comment
+  fastify.post("/", async (request, reply) => {
     try {
-      const { articleId, content, parentCommentId } = request.body
-      const token = request.headers.authorization?.replace("Bearer ", "")
+      const { articleId, content, author } = request.body
 
-      if (!token) {
-        return reply.status(401).send({
+      if (!articleId || !content || !author) {
+        return reply.status(400).send({
           success: false,
-          error: "Authentication required",
+          error: "Article ID, content, and author are required",
         })
       }
 
-      // In a real implementation, verify the JWT token here
-      // For now, we'll create a mock response
-      const newComment = {
-        _id: "new-comment-" + Date.now(),
+      const comment = new Comment({
+        articleId,
         content,
-        user: {
-          _id: "current-user",
-          name: "Current User",
-          avatar: "/placeholder.svg?height=40&width=40",
-        },
-        createdAt: new Date(),
-        likes: 0,
-        replies: [],
-      }
+        author,
+      })
 
-      reply.send({
+      await comment.save()
+
+      reply.status(201).send({
         success: true,
-        comment: newComment,
+        comment,
       })
     } catch (error) {
-      fastify.log.error("Error adding comment:", error)
+      fastify.log.error(error)
       reply.status(500).send({
         success: false,
-        error: "Failed to add comment",
+        error: "Failed to create comment",
       })
     }
   })
 
-  // Like a comment
-  fastify.post("/comments/like/:commentId", async (request, reply) => {
+  // Delete a comment (admin only)
+  fastify.delete("/:id", async (request, reply) => {
     try {
-      const { commentId } = request.params
-      const token = request.headers.authorization?.replace("Bearer ", "")
+      const { id } = request.params
 
-      if (!token) {
-        return reply.status(401).send({
-          success: false,
-          error: "Authentication required",
-        })
-      }
-
-      // Mock response for liking a comment
-      reply.send({
-        success: true,
-        likes: Math.floor(Math.random() * 10) + 1,
-      })
-    } catch (error) {
-      fastify.log.error("Error liking comment:", error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to like comment",
-      })
-    }
-  })
-
-  // Delete a comment
-  fastify.delete("/comments/:commentId", async (request, reply) => {
-    try {
-      const { commentId } = request.params
-      const { userId } = request.body
-
-      const comment = await Comment.findById(commentId)
+      const comment = await Comment.findByIdAndDelete(id)
 
       if (!comment) {
         return reply.status(404).send({
           success: false,
-          message: "Comment not found",
+          error: "Comment not found",
         })
       }
-
-      // Check if user owns the comment
-      if (comment.user.toString() !== userId) {
-        return reply.status(403).send({
-          success: false,
-          message: "Not authorized to delete this comment",
-        })
-      }
-
-      await Comment.findByIdAndDelete(commentId)
 
       reply.send({
         success: true,
         message: "Comment deleted successfully",
       })
     } catch (error) {
-      fastify.log.error("Error deleting comment:", error)
+      fastify.log.error(error)
       reply.status(500).send({
         success: false,
-        message: "Error deleting comment",
+        error: "Failed to delete comment",
+      })
+    }
+  })
+
+  // Update comment status (admin only)
+  fastify.patch("/:id/status", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const { status } = request.body
+
+      if (!["approved", "pending", "rejected"].includes(status)) {
+        return reply.status(400).send({
+          success: false,
+          error: "Invalid status",
+        })
+      }
+
+      const comment = await Comment.findByIdAndUpdate(id, { status }, { new: true })
+
+      if (!comment) {
+        return reply.status(404).send({
+          success: false,
+          error: "Comment not found",
+        })
+      }
+
+      reply.send({
+        success: true,
+        comment,
+      })
+    } catch (error) {
+      fastify.log.error(error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to update comment status",
       })
     }
   })
 }
 
-module.exports = commentsRoutes
+module.exports = commentRoutes

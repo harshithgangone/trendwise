@@ -1,18 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+// Mark this route as dynamic since we might use query parameters
 export const dynamic = "force-dynamic"
+
+// Mock categories for fallback
+const mockCategories = [
+  { name: "Technology", count: 15, slug: "technology" },
+  { name: "AI", count: 8, slug: "ai" },
+  { name: "Healthcare", count: 6, slug: "healthcare" },
+  { name: "Climate", count: 4, slug: "climate" },
+  { name: "Work", count: 7, slug: "work" },
+  { name: "Culture", count: 5, slug: "culture" },
+  { name: "Environment", count: 3, slug: "environment" },
+  { name: "Sustainability", count: 4, slug: "sustainability" },
+]
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("📂 [FRONTEND API] Categories API called")
-
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
     try {
-      console.log("🔗 [FRONTEND API] Attempting to fetch categories from backend:", backendUrl)
+      console.log("🔍 [FRONTEND API] Attempting to fetch categories from backend...")
 
-      const apiUrl = `${backendUrl}/api/articles/meta/categories`
-      console.log("📡 [FRONTEND API] Categories API URL:", apiUrl)
+      // Try the correct backend endpoint
+      const apiUrl = `${backendUrl}/api/articles/categories`
+      console.log("🔗 [FRONTEND API] Categories API URL:", apiUrl)
 
       const response = await fetch(apiUrl, {
         method: "GET",
@@ -21,20 +33,19 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
         },
         cache: "no-store",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(10000),
       })
-
-      console.log(`📈 [FRONTEND API] Backend categories response status: ${response.status}`)
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [FRONTEND API] Successfully fetched ${data.categories?.length || 0} categories from backend`)
+        console.log(`✅ [FRONTEND API] Successfully fetched ${data.length || 0} categories from database`)
 
         return NextResponse.json({
           success: true,
-          categories: data.categories || [],
+          categories: data,
         })
       } else {
+        console.log(`⚠️ [FRONTEND API] Backend categories responded with status ${response.status}`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
@@ -43,30 +54,19 @@ export async function GET(request: NextRequest) {
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
 
-      const mockCategories = [
-        { name: "Technology", count: 15, slug: "technology" },
-        { name: "Business", count: 12, slug: "business" },
-        { name: "Health", count: 8, slug: "health" },
-        { name: "Science", count: 10, slug: "science" },
-        { name: "Environment", count: 6, slug: "environment" },
-        { name: "Entertainment", count: 5, slug: "entertainment" },
-      ]
-
-      console.log(`📊 [FRONTEND API] Returning ${mockCategories.length} mock categories`)
-
       return NextResponse.json({
         success: true,
         categories: mockCategories,
       })
     }
   } catch (error) {
-    console.error("❌ [FRONTEND API] Critical error in categories API:", error)
+    console.error("❌ [FRONTEND API] Error fetching categories:", error)
 
     return NextResponse.json(
       {
         success: false,
         error: "Failed to fetch categories",
-        categories: [],
+        categories: mockCategories,
       },
       { status: 500 },
     )

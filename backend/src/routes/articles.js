@@ -1,34 +1,39 @@
 const Article = require("../models/Article")
 
-async function articlesRoutes(fastify, options) {
-  // Get all articles with pagination
-  fastify.get("/articles", async (request, reply) => {
+async function articleRoutes(fastify, options) {
+  // Get all articles
+  fastify.get("/", async (request, reply) => {
     try {
-      const { page = 1, limit = 10, category, search, tag } = request.query
-      const skip = (page - 1) * limit
+      console.log("📚 [BACKEND DB] Fetching articles from database...")
+      const { page = 1, limit = 10, search, tag, category } = request.query
 
       const query = { status: "published" }
 
-      if (category) {
-        query.category = new RegExp(category, "i")
+      if (search) {
+        query.$text = { $search: search }
       }
 
       if (tag) {
-        query.tags = { $in: [new RegExp(tag, "i")] }
+        query.tags = { $in: [tag] }
       }
 
-      if (search) {
-        query.$or = [
-          { title: { $regex: search, $options: "i" } },
-          { excerpt: { $regex: search, $options: "i" } },
-          { content: { $regex: search, $options: "i" } },
-          { tags: { $in: [new RegExp(search, "i")] } },
-        ]
+      if (category) {
+        query.tags = { $in: [category] }
       }
 
-      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number.parseInt(limit)).lean()
+      const articles = await Article.find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content") // Exclude full content for list view
 
       const total = await Article.countDocuments(query)
+
+      console.log(`✅ [BACKEND DB] Successfully retrieved ${articles.length} articles from database (${total} total)`)
+
+      if (articles.length === 0) {
+        console.log("📝 [BACKEND DB] No articles found in database")
+      }
 
       reply.send({
         success: true,
@@ -38,365 +43,278 @@ async function articlesRoutes(fastify, options) {
           limit: Number.parseInt(limit),
           total,
           pages: Math.ceil(total / limit),
-          hasNext: skip + articles.length < total,
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
         },
       })
     } catch (error) {
-      fastify.log.error("Error fetching articles:", error)
-
-      // Return mock data as fallback
-      const mockArticles = [
-        {
-          _id: "mock1",
-          title: "AI Revolution in 2024: What You Need to Know",
-          slug: "ai-revolution-2024-what-you-need-to-know",
-          excerpt: "Artificial Intelligence continues to transform industries worldwide with breakthrough innovations.",
-          content: "# AI Revolution in 2024\n\nArtificial Intelligence is reshaping our world...",
-          category: "Technology",
-          tags: ["AI", "Technology", "Innovation"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 1250,
-          likes: 89,
-          saves: 34,
-          readTime: 5,
-          featured: true,
-          status: "published",
-        },
-        {
-          _id: "mock2",
-          title: "Sustainable Energy Solutions Gaining Momentum",
-          slug: "sustainable-energy-solutions-gaining-momentum",
-          excerpt: "Renewable energy technologies are becoming more efficient and cost-effective than ever before.",
-          content: "# Sustainable Energy Solutions\n\nThe future of energy is green...",
-          category: "Environment",
-          tags: ["Energy", "Sustainability", "Environment"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 892,
-          likes: 67,
-          saves: 23,
-          readTime: 4,
-          featured: false,
-          status: "published",
-        },
-        {
-          _id: "mock3",
-          title: "Remote Work Trends Shaping the Future",
-          slug: "remote-work-trends-shaping-the-future",
-          excerpt: "How remote work is transforming business operations and employee satisfaction globally.",
-          content: "# Remote Work Trends\n\nThe workplace has evolved dramatically...",
-          category: "Business",
-          tags: ["Remote Work", "Business", "Future"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 1456,
-          likes: 112,
-          saves: 45,
-          readTime: 6,
-          featured: false,
-          status: "published",
-        },
-      ]
-
-      reply.send({
-        success: true,
-        articles: mockArticles,
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 3,
-          pages: 1,
-          hasNext: false,
-        },
+      console.error("❌ [BACKEND DB] Error fetching articles:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles",
       })
     }
   })
 
-  // Get trending articles
-  fastify.get("/articles/trending/top", async (request, reply) => {
+  // Get single article by ID
+  fastify.get("/by-id/:id", async (request, reply) => {
     try {
-      const articles = await Article.find({ status: "published" }).sort({ views: -1, createdAt: -1 }).limit(10).lean()
+      const { id } = request.params
+      console.log(`🔍 [BACKEND DB] Fetching article with ID: ${id}`)
 
-      reply.send({
-        success: true,
-        articles,
-      })
-    } catch (error) {
-      fastify.log.error("Error fetching trending articles:", error)
+      const article = await Article.findById(id)
 
-      // Mock trending articles
-      const mockTrending = [
-        {
-          _id: "trending1",
-          title: "Breaking: Major Tech Breakthrough Announced",
-          slug: "breaking-major-tech-breakthrough-announced",
-          excerpt: "Industry leaders reveal game-changing innovation that could reshape technology.",
-          category: "Technology",
-          tags: ["Breaking", "Technology", "Innovation"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 5420,
-          likes: 234,
-          saves: 89,
-          readTime: 7,
-          featured: true,
-          trendData: {
-            trendScore: 95,
-            searchVolume: "High",
-            source: "Google Trends",
-          },
-        },
-        {
-          _id: "trending2",
-          title: "Global Climate Initiative Shows Promising Results",
-          slug: "global-climate-initiative-shows-promising-results",
-          excerpt: "New environmental policies are making a significant impact on carbon reduction.",
-          category: "Environment",
-          tags: ["Climate", "Environment", "Policy"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 3890,
-          likes: 178,
-          saves: 67,
-          readTime: 5,
-          featured: true,
-          trendData: {
-            trendScore: 88,
-            searchVolume: "High",
-            source: "News Analysis",
-          },
-        },
-      ]
-
-      reply.send({
-        success: true,
-        articles: mockTrending,
-      })
-    }
-  })
-
-  // Get article categories with counts
-  fastify.get("/articles/meta/categories", async (request, reply) => {
-    try {
-      const categories = await Article.aggregate([
-        { $match: { status: "published" } },
-        { $group: { _id: "$category", count: { $sum: 1 } } },
-        { $project: { name: "$_id", count: 1, slug: { $toLower: "$_id" }, _id: 0 } },
-        { $sort: { name: 1 } },
-      ])
-
-      reply.send({
-        success: true,
-        categories,
-      })
-    } catch (error) {
-      fastify.log.error("Error fetching categories:", error)
-
-      // Mock categories
-      const mockCategories = [
-        { name: "Technology", count: 45, slug: "technology" },
-        { name: "Business", count: 32, slug: "business" },
-        { name: "Science", count: 28, slug: "science" },
-        { name: "Environment", count: 23, slug: "environment" },
-        { name: "Healthcare", count: 19, slug: "healthcare" },
-        { name: "Education", count: 15, slug: "education" },
-      ]
-
-      reply.send({
-        success: true,
-        categories: mockCategories,
-      })
-    }
-  })
-
-  // Get articles by category
-  fastify.get("/articles/category/:category", async (request, reply) => {
-    try {
-      const { category } = request.params
-      const { page = 1, limit = 10 } = request.query
-      const skip = (page - 1) * limit
-
-      const query = {
-        category: new RegExp(category, "i"),
-        status: "published",
+      if (!article) {
+        console.log(`❌ [BACKEND DB] Article not found with ID: ${id}`)
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
       }
 
-      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number.parseInt(limit)).lean()
-
-      const total = await Article.countDocuments(query)
-
-      reply.send({
-        success: true,
-        articles,
-        pagination: {
-          page: Number.parseInt(page),
-          limit: Number.parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit),
-          hasNext: skip + articles.length < total,
-        },
-      })
+      console.log(`✅ [BACKEND DB] Successfully retrieved article: ${article.title}`)
+      reply.send(article)
     } catch (error) {
-      fastify.log.error("Error fetching articles by category:", error)
-
-      // Mock category articles
-      const mockArticles = [
-        {
-          _id: "cat1",
-          title: `Latest in ${request.params.category}`,
-          slug: `latest-in-${request.params.category.toLowerCase()}`,
-          excerpt: `Discover the newest developments in ${request.params.category}.`,
-          category: request.params.category,
-          tags: [request.params.category, "Latest", "News"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 567,
-          likes: 34,
-          saves: 12,
-          readTime: 4,
-          status: "published",
-        },
-      ]
-
-      reply.send({
-        success: true,
-        articles: mockArticles,
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 1,
-          pages: 1,
-          hasNext: false,
-        },
+      console.error("❌ [BACKEND DB] Error fetching article by ID:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch article",
       })
     }
   })
 
   // Get single article by slug
-  fastify.get("/articles/:slug", async (request, reply) => {
+  fastify.get("/:slug", async (request, reply) => {
     try {
       const { slug } = request.params
-      const article = await Article.findOneAndUpdate(
-        { slug, status: "published" },
-        { $inc: { views: 1 } },
-        { new: true },
-      ).lean()
+      console.log(`🔍 [BACKEND DB] Fetching article with slug: ${slug}`)
 
-      if (!article) {
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
-
-      reply.send(article)
-    } catch (error) {
-      fastify.log.error("Error fetching article:", error)
-
-      // Mock article for fallback
-      const mockArticle = {
-        _id: "mock-article",
-        title: "Sample Article",
-        slug: request.params.slug,
-        excerpt: "This is a sample article for demonstration purposes.",
-        content: "# Sample Article\n\nThis is sample content.",
-        category: "Technology",
-        tags: ["Sample", "Demo"],
-        author: "TrendBot AI",
-        thumbnail: "/placeholder.svg?height=400&width=600",
-        createdAt: new Date(),
-        views: 100,
-        likes: 10,
-        saves: 5,
-        readTime: 3,
+      const article = await Article.findOne({
+        slug,
         status: "published",
-      }
-
-      reply.send(mockArticle)
-    }
-  })
-
-  // Get article by ID
-  fastify.get("/articles/by-id/:id", async (request, reply) => {
-    try {
-      const { id } = request.params
-      const article = await Article.findByIdAndUpdate(id, { $inc: { views: 1 } }, { new: true }).lean()
+      })
 
       if (!article) {
+        console.log(`❌ [BACKEND DB] Article not found with slug: ${slug}`)
         return reply.status(404).send({
           success: false,
           error: "Article not found",
         })
       }
 
+      // Increment view count
+      article.views = (article.views || 0) + 1
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Successfully retrieved article: ${article.title}`)
       reply.send(article)
     } catch (error) {
-      fastify.log.error("Error fetching article by ID:", error)
+      console.error("❌ [BACKEND DB] Error fetching article:", error.message)
       reply.status(500).send({
         success: false,
-        error: "Error fetching article",
+        error: "Failed to fetch article",
       })
     }
   })
 
-  // Like an article
-  fastify.post("/articles/like/:id", async (request, reply) => {
+  // Get trending articles
+  fastify.get("/trending/top", async (request, reply) => {
     try {
-      const { id } = request.params
-      const article = await Article.findByIdAndUpdate(id, { $inc: { likes: 1 } }, { new: true })
+      console.log("🔥 [BACKEND DB] Fetching trending articles...")
 
-      if (!article) {
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
+      const articles = await Article.find({ status: "published" })
+        .sort({ views: -1, likes: -1, saves: -1 })
+        .limit(10)
+        .select("-content")
 
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} trending articles`)
       reply.send({
         success: true,
-        likes: article.likes,
+        articles,
       })
     } catch (error) {
-      fastify.log.error("Error liking article:", error)
+      console.error("❌ [BACKEND DB] Error fetching trending articles:", error.message)
       reply.status(500).send({
         success: false,
-        error: "Error liking article",
+        error: "Failed to fetch trending articles",
       })
     }
   })
 
-  // Save an article
-  fastify.post("/articles/save/:id", async (request, reply) => {
+  // Get articles by category
+  fastify.get("/category/:category", async (request, reply) => {
     try {
-      const { id } = request.params
-      const article = await Article.findByIdAndUpdate(id, { $inc: { saves: 1 } }, { new: true })
+      const { category } = request.params
+      const { page = 1, limit = 10 } = request.query
+      console.log(`📂 [BACKEND DB] Fetching articles for category: ${category}`)
 
-      if (!article) {
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
+      const articles = await Article.find({
+        tags: { $in: [category] },
+        status: "published",
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content")
 
+      const total = await Article.countDocuments({
+        tags: { $in: [category] },
+        status: "published",
+      })
+
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} articles for category: ${category}`)
       reply.send({
         success: true,
-        saves: article.saves,
+        articles,
+        category,
+        pagination: {
+          page: Number.parseInt(page),
+          limit: Number.parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
       })
     } catch (error) {
-      fastify.log.error("Error saving article:", error)
+      console.error("❌ [BACKEND DB] Error fetching articles by category:", error.message)
       reply.status(500).send({
         success: false,
-        error: "Error saving article",
+        error: "Failed to fetch articles by category",
       })
+    }
+  })
+
+  // Get articles by tag
+  fastify.get("/tag/:tag", async (request, reply) => {
+    try {
+      const { tag } = request.params
+      const { page = 1, limit = 10 } = request.query
+      console.log(`🏷️ [BACKEND DB] Fetching articles for tag: ${tag}`)
+
+      const articles = await Article.find({
+        tags: { $in: [tag] },
+        status: "published",
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit)
+        .select("-content")
+
+      const total = await Article.countDocuments({
+        tags: { $in: [tag] },
+        status: "published",
+      })
+
+      console.log(`✅ [BACKEND DB] Retrieved ${articles.length} articles for tag: ${tag}`)
+      reply.send({
+        success: true,
+        articles,
+        tag,
+        pagination: {
+          page: Number.parseInt(page),
+          limit: Number.parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit),
+          hasNext: page * limit < total,
+          hasPrev: page > 1,
+        },
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching articles by tag:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles by tag",
+      })
+    }
+  })
+
+  // Get available categories
+  fastify.get("/meta/categories", async (request, reply) => {
+    try {
+      console.log("🏷️ [BACKEND DB] Fetching all categories...")
+
+      const categories = await Article.aggregate([
+        { $match: { status: "published" } },
+        { $unwind: "$tags" },
+        { $group: { _id: "$tags", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 20 },
+      ])
+
+      const formattedCategories = categories.map((cat) => ({
+        name: cat._id,
+        count: cat.count,
+        slug: cat._id.toLowerCase().replace(/\s+/g, "-"),
+      }))
+
+      console.log(`✅ [BACKEND DB] Retrieved ${categories.length} categories`)
+      reply.send({
+        success: true,
+        categories: formattedCategories,
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error fetching categories:", error.message)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch categories",
+      })
+    }
+  })
+
+  // Like/unlike an article
+  fastify.post("/like/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const { increment } = request.body
+      console.log(`👍 [BACKEND DB] ${increment ? "Liking" : "Unliking"} article ${id}`)
+
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({ success: false, error: "Article not found" })
+      }
+
+      if (increment) {
+        article.likes = (article.likes || 0) + 1
+      } else {
+        article.likes = Math.max(0, (article.likes || 0) - 1)
+      }
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Article ${id} now has ${article.likes} likes`)
+      reply.send({ success: true, likes: article.likes, liked: increment })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error updating likes:", error.message)
+      reply.status(500).send({ success: false, error: "Failed to update likes" })
+    }
+  })
+
+  // Save/unsave an article
+  fastify.post("/save/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const { increment } = request.body
+      console.log(`💾 [BACKEND DB] ${increment ? "Saving" : "Unsaving"} article ${id}`)
+
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({ success: false, error: "Article not found" })
+      }
+
+      if (increment) {
+        article.saves = (article.saves || 0) + 1
+      } else {
+        article.saves = Math.max(0, (article.saves || 0) - 1)
+      }
+      await article.save()
+
+      console.log(`✅ [BACKEND DB] Article ${id} now has ${article.saves} saves`)
+      reply.send({ success: true, saves: article.saves, saved: increment })
+    } catch (error) {
+      console.error("❌ [BACKEND DB] Error updating saves:", error.message)
+      reply.status(500).send({ success: false, error: "Failed to update saves" })
     }
   })
 }
 
-module.exports = articlesRoutes
+module.exports = articleRoutes

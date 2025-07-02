@@ -1,118 +1,62 @@
-const Article = require("../models/Article")
+const trendCrawler = require("../services/trendCrawler")
 
-async function trendsRoutes(fastify, options) {
-  // Get trending topics
-  fastify.get("/trends/topics", async (request, reply) => {
+async function trendRoutes(fastify, options) {
+  // Get current trending topics
+  fastify.get("/current", async (request, reply) => {
     try {
-      const { limit = 10 } = request.query
+      const { source = "all", geo = "US" } = request.query
 
-      // Get trending articles based on views and recent activity
-      const trendingArticles = await Article.find({ status: "published" })
-        .sort({ views: -1, createdAt: -1 })
-        .limit(Number.parseInt(limit))
-        .select("title tags category views createdAt")
-        .lean()
+      let trends = []
 
-      // Extract trending topics from articles
-      const topicCounts = {}
-      trendingArticles.forEach((article) => {
-        article.tags.forEach((tag) => {
-          topicCounts[tag] = (topicCounts[tag] || 0) + article.views
-        })
-      })
+      if (source === "google" || source === "all") {
+        const googleTrends = await trendCrawler.getGoogleTrends(geo)
+        trends = [...trends, ...googleTrends]
+      }
 
-      // Sort topics by total views
-      const trendingTopics = Object.entries(topicCounts)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, Number.parseInt(limit))
-        .map(([topic, views]) => ({
-          topic,
-          views,
-          articles: trendingArticles.filter((article) => article.tags.includes(topic)).length,
-        }))
+      if (source === "twitter" || source === "all") {
+        const twitterTrends = await trendCrawler.getTwitterTrends()
+        trends = [...trends, ...twitterTrends]
+      }
 
       reply.send({
         success: true,
-        topics: trendingTopics,
+        trends,
         timestamp: new Date().toISOString(),
       })
     } catch (error) {
-      fastify.log.error("Error fetching trending topics:", error)
-
-      // Mock trending topics
-      const mockTopics = [
-        { topic: "AI", views: 15420, articles: 12 },
-        { topic: "Technology", views: 12890, articles: 18 },
-        { topic: "Climate", views: 9876, articles: 8 },
-        { topic: "Business", views: 8765, articles: 15 },
-        { topic: "Innovation", views: 7654, articles: 10 },
-        { topic: "Health", views: 6543, articles: 7 },
-        { topic: "Science", views: 5432, articles: 9 },
-        { topic: "Environment", views: 4321, articles: 6 },
-      ]
-
-      const limit = request.query.limit || 10 // Declare the limit variable
-
-      reply.send({
-        success: true,
-        topics: mockTopics.slice(0, Number.parseInt(limit)),
-        timestamp: new Date().toISOString(),
+      fastify.log.error(error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch trends",
       })
     }
   })
 
-  // Get trending articles by topic
-  fastify.get("/trends/articles/:topic", async (request, reply) => {
+  // Search for specific trend data
+  fastify.get("/search/:query", async (request, reply) => {
     try {
-      const { topic } = request.params
-      const { limit = 10 } = request.query
+      const { query } = request.params
 
-      const articles = await Article.find({
-        status: "published",
-        tags: { $in: [new RegExp(topic, "i")] },
-      })
-        .sort({ views: -1, createdAt: -1 })
-        .limit(Number.parseInt(limit))
-        .lean()
+      const [relatedContent, mediaContent] = await Promise.all([
+        trendCrawler.searchRelatedContent(query),
+        trendCrawler.getMediaContent(query),
+      ])
 
       reply.send({
         success: true,
-        topic,
-        articles,
-        count: articles.length,
+        query,
+        relatedContent,
+        media: mediaContent,
+        timestamp: new Date().toISOString(),
       })
     } catch (error) {
-      fastify.log.error("Error fetching trending articles by topic:", error)
-
-      // Mock articles for topic
-      const mockArticles = [
-        {
-          _id: "trend1",
-          title: `Latest ${request.params.topic} Developments`,
-          slug: `latest-${request.params.topic.toLowerCase()}-developments`,
-          excerpt: `Discover the newest trends and developments in ${request.params.topic}.`,
-          category: "Technology",
-          tags: [request.params.topic, "Trending", "Latest"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 1234,
-          likes: 89,
-          saves: 45,
-          readTime: 5,
-        },
-      ]
-
-      const limit = request.query.limit || 10 // Declare the limit variable
-
-      reply.send({
-        success: true,
-        topic: request.params.topic,
-        articles: mockArticles,
-        count: 1,
+      fastify.log.error(error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to search trend data",
       })
     }
   })
 }
 
-module.exports = trendsRoutes
+module.exports = trendRoutes

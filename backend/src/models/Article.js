@@ -1,74 +1,103 @@
 const mongoose = require("mongoose")
-const bcrypt = require("bcryptjs")
 
-const userSchema = new mongoose.Schema(
+const tweetSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: true,
+  },
+  handle: {
+    type: String,
+    required: true,
+  },
+  text: {
+    type: String,
+    required: true,
+  },
+  link: {
+    type: String,
+    required: true,
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+  },
+})
+
+const articleSchema = new mongoose.Schema(
   {
-    name: {
+    title: {
       type: String,
       required: true,
       trim: true,
     },
-    email: {
+    slug: {
       type: String,
       required: true,
       unique: true,
-      trim: true,
-      lowercase: true,
     },
-    password: {
+    content: {
       type: String,
-      required: function () {
-        return !this.googleId
+      required: true,
+    },
+    excerpt: {
+      type: String,
+      required: true,
+    },
+    thumbnail: {
+      type: String,
+      default: "/placeholder.svg?height=400&width=600",
+    },
+    tags: [
+      {
+        type: String,
+        trim: true,
       },
+    ],
+    meta: {
+      title: String,
+      description: String,
+      keywords: String,
     },
-    googleId: {
+    media: {
+      images: [String],
+      videos: [String],
+      tweets: [tweetSchema], // Proper schema for tweet objects
+    },
+    readTime: {
+      type: Number,
+      default: 5,
+    },
+    views: {
+      type: Number,
+      default: 0,
+    },
+    likes: {
+      type: Number,
+      default: 0,
+    },
+    saves: {
+      type: Number,
+      default: 0,
+    },
+    status: {
       type: String,
-      sparse: true,
+      enum: ["draft", "published"],
+      default: "published",
     },
-    avatar: {
-      type: String,
-      default: "",
+    trendData: {
+      source: String,
+      originalQuery: String,
+      trendScore: Number,
+      searchVolume: String,
+      geo: String,
     },
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-    },
-    preferences: {
-      savedArticles: [
-        {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Article",
-        },
-      ],
-      likedArticles: [
-        {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Article",
-        },
-      ],
-      recentlyViewed: [
-        {
-          article: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "Article",
-          },
-          viewedAt: {
-            type: Date,
-            default: Date.now,
-          },
-        },
-      ],
-      categories: [String],
-      tags: [String],
-    },
-    isActive: {
+    featured: {
       type: Boolean,
-      default: true,
+      default: false,
     },
-    lastLogin: {
-      type: Date,
-      default: Date.now,
+    author: {
+      type: String,
+      default: "TrendWise AI",
     },
   },
   {
@@ -76,24 +105,10 @@ const userSchema = new mongoose.Schema(
   },
 )
 
-// Hash password before saving
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next()
-  if (this.password) {
-    this.password = await bcrypt.hash(this.password, 12)
-  }
-  next()
-})
+// Index for search and performance
+articleSchema.index({ title: "text", content: "text", tags: "text" })
+articleSchema.index({ createdAt: -1 })
+articleSchema.index({ views: -1 })
+articleSchema.index({ "trendData.trendScore": -1 })
 
-// Compare password method
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  if (!this.password) return false
-  return bcrypt.compare(candidatePassword, this.password)
-}
-
-// Create indexes
-userSchema.index({ email: 1 })
-userSchema.index({ googleId: 1 })
-userSchema.index({ role: 1 })
-
-module.exports = mongoose.model("User", userSchema)
+module.exports = mongoose.model("Article", articleSchema)
