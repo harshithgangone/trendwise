@@ -3,8 +3,8 @@
 > **Internship Project for True IAS** - A comprehensive full-stack SEO-optimized blog platform that fetches trending topics and generates AI-powered content.
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20Site-blue?style=for-the-badge)](https://trendwise-frontend.vercel.app)
-[![Backend API](https://img.shields.io/badge/Backend%20API-Live-green?style=for-the-badge)](https://trendwise-backend.railway.app)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge)](https://github.com/yourusername/trendwise)
+[![Backend API](https://img.shields.io/badge/Backend%20API-Live-green?style=for-the-badge)]([https://trendwise-backend-frpp.onrender.com])
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge)](https://github.com/harshithgangone/trendwise)
 
 ## 📋 Project Overview
 
@@ -26,7 +26,7 @@
 | Service | Platform | URL | Status |
 |---------|----------|-----|--------|
 | **Frontend** | Vercel | [trendwise-frontend.vercel.app](https://trendwise-frontend.vercel.app) | 🟢 Live |
-| **Backend API** | Railway | [trendwise-backend.railway.app](https://trendwise-backend.railway.app) | 🟢 Live |
+| **Backend API** | Render | [trendwise-backend.railway.app](https://trendwise-backend-frpp.onrender.com) | 🟢 Live |
 | **Database** | MongoDB Atlas | Cloud Hosted | 🟢 Active |
 
 ## 🛠️ Tech Stack
