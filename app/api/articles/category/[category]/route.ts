@@ -1,67 +1,75 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 
-export async function GET(request: NextRequest, { params }: { params: { category: string } }) {
+// Mock categories
+const mockCategories = [
+  { name: "Technology", slug: "technology", count: 45 },
+  { name: "Business", slug: "business", count: 32 },
+  { name: "Health", slug: "health", count: 28 },
+  { name: "Science", slug: "science", count: 24 },
+  { name: "Entertainment", slug: "entertainment", count: 19 },
+  { name: "Sports", slug: "sports", count: 16 },
+  { name: "Politics", slug: "politics", count: 14 },
+  { name: "Environment", slug: "environment", count: 12 },
+]
+
+export async function GET() {
   try {
-    const { category } = params
-    const { searchParams } = new URL(request.url)
-    const page = searchParams.get("page") || "1"
-    const limit = searchParams.get("limit") || "10"
+    // Try to fetch from backend first
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
-    console.log(`📂 [FRONTEND API] Fetching articles for category: ${category}`)
+    try {
+      console.log("📂 [FRONTEND API] Fetching categories...")
+      const apiUrl = `${backendUrl}/api/articles/categories`
+      console.log("🔗 [FRONTEND API] Categories API URL:", apiUrl)
 
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
-    const response = await fetch(
-      `${backendUrl}/api/articles/category/${encodeURIComponent(category)}?page=${page}&limit=${limit}`,
-      {
-        cache: "no-store",
+      const response = await fetch(apiUrl, {
+        method: "GET",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-      },
-    )
+        signal: AbortSignal.timeout(10000),
+      })
 
-    if (!response.ok) {
-      throw new Error(`Backend responded with status: ${response.status}`)
+      if (response.ok) {
+        const data = await response.json()
+        console.log(`✅ [FRONTEND API] Successfully fetched ${data.categories?.length || data.length || 0} categories`)
+
+        if (Array.isArray(data)) {
+          return NextResponse.json({
+            success: true,
+            categories: data,
+          })
+        } else if (data.categories) {
+          return NextResponse.json(data)
+        } else {
+          throw new Error("Invalid response format from backend")
+        }
+      } else {
+        console.log(`⚠️ [FRONTEND API] Backend responded with status ${response.status}, using mock categories`)
+        throw new Error(`Backend responded with status: ${response.status}`)
+      }
+    } catch (backendError) {
+      console.log(
+        "⚠️ [FRONTEND API] Backend not available for categories, using mock data:",
+        backendError instanceof Error ? backendError.message : "Unknown error",
+      )
+
+      return NextResponse.json({
+        success: true,
+        categories: mockCategories,
+      })
     }
-
-    const data = await response.json()
-    console.log(
-      `✅ [FRONTEND API] Successfully fetched ${data.articles?.length || 0} articles for category "${category}"`,
-    )
-
-    return NextResponse.json(data)
   } catch (error) {
-    console.error("❌ [FRONTEND API] Error fetching articles by category:", error)
+    console.error("❌ [FRONTEND API] Error in categories API route:", error)
 
-    // Fallback articles for category
-    const fallbackArticles = [
+    return NextResponse.json(
       {
-        _id: `${params.category}-1`,
-        title: `Latest in ${params.category}`,
-        slug: `latest-in-${params.category.toLowerCase()}`,
-        excerpt: `Discover the most recent developments and insights in ${params.category}.`,
-        thumbnail: "/placeholder.svg?height=400&width=600",
-        createdAt: new Date().toISOString(),
-        tags: [params.category, "Latest", "Insights"],
-        readTime: 5,
-        views: 1250,
-        featured: false,
+        success: false,
+        error: "Failed to fetch categories",
+        categories: mockCategories,
       },
-    ]
-
-    return NextResponse.json({
-      success: true,
-      articles: fallbackArticles,
-      category: params.category,
-      pagination: {
-        page: 1,
-        limit: 10,
-        total: fallbackArticles.length,
-        pages: 1,
-        hasNext: false,
-        hasPrev: false,
-      },
-    })
+      { status: 500 },
+    )
   }
 }

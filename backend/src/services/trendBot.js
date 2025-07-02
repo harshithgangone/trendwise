@@ -25,10 +25,10 @@ class TrendBot {
     this.groqService = groqService
     this.unsplashService = unsplashService
 
-    // Configuration
+    // Configuration - CHANGED TO 5 MINUTES
     this.config = {
-      interval: "0 */6 * * *", // Every 6 hours
-      maxArticlesPerRun: 5,
+      interval: "*/5 * * * *", // Every 5 minutes (changed from 6 hours)
+      maxArticlesPerRun: 3, // Reduced since running more frequently
       minArticleLength: 800,
       maxArticleLength: 2000,
       categories: ["technology", "business", "health", "science", "entertainment"],
@@ -40,22 +40,15 @@ class TrendBot {
     console.log("🤖 [TrendBot] Initialized with configuration:", this.config)
   }
 
-  // Calculate next run time manually
+  // Calculate next run time manually (every 5 minutes)
   calculateNextRun() {
     const now = new Date()
     const nextRun = new Date(now)
 
-    // For "0 */6 * * *" (every 6 hours at minute 0)
-    // Find the next 6-hour interval
-    const currentHour = now.getHours()
-    const nextHour = Math.ceil((currentHour + 1) / 6) * 6
-
-    if (nextHour >= 24) {
-      nextRun.setDate(nextRun.getDate() + 1)
-      nextRun.setHours(0, 0, 0, 0)
-    } else {
-      nextRun.setHours(nextHour, 0, 0, 0)
-    }
+    // Add 5 minutes to current time
+    nextRun.setMinutes(now.getMinutes() + 5)
+    nextRun.setSeconds(0)
+    nextRun.setMilliseconds(0)
 
     return nextRun
   }
@@ -73,12 +66,12 @@ class TrendBot {
       // Calculate next run time
       this.nextRun = this.calculateNextRun()
 
-      // Schedule the cron job
+      // Schedule the cron job - EVERY 5 MINUTES
       this.job = cron.schedule(
         this.config.interval,
         async () => {
           if (!this.isRunning) {
-            console.log("⏰ [TrendBot] Scheduled run triggered")
+            console.log("⏰ [TrendBot] Scheduled run triggered (every 5 minutes)")
             await this.runContentGeneration()
           } else {
             console.log("⏳ [TrendBot] Previous run still in progress, skipping...")
@@ -94,7 +87,7 @@ class TrendBot {
       this.isActive = true
 
       console.log("✅ [TrendBot] Bot started successfully")
-      console.log(`⏰ [TrendBot] Scheduled to run every 6 hours`)
+      console.log(`⏰ [TrendBot] Scheduled to run every 5 minutes`)
       console.log(`📊 [TrendBot] Will generate up to ${this.config.maxArticlesPerRun} articles per run`)
       console.log(`⏰ [TrendBot] Next scheduled run: ${this.nextRun.toISOString()}`)
 
@@ -260,7 +253,7 @@ class TrendBot {
 
     try {
       // Primary source: Enhanced trends from crawler
-      let trends = await this.trendCrawler.crawlTrends()
+      const trends = await this.trendCrawler.crawlTrends()
       console.log(`📊 [TrendBot] Fetched ${trends.trends?.length || 0} trends from TrendCrawler`)
 
       if (trends.success && trends.trends) {
@@ -280,35 +273,40 @@ class TrendBot {
   // Generate fallback trends when primary sources fail
   generateFallbackTrends() {
     console.log("🔄 [TrendBot] Generating fallback trends...")
-    
+
     const fallbackTrends = [
       {
         title: "Latest Technology Innovations Transforming Industries",
-        description: "Exploring the cutting-edge technologies that are reshaping various industries and creating new opportunities for businesses and consumers alike.",
+        description:
+          "Exploring the cutting-edge technologies that are reshaping various industries and creating new opportunities for businesses and consumers alike.",
         category: "technology",
         keywords: ["technology", "innovation", "digital transformation", "AI", "automation"],
         source: "Fallback",
         publishedAt: new Date(),
         thumbnail: "/placeholder.svg?height=400&width=600",
-        excerpt: "Technology continues to evolve at an unprecedented pace, bringing revolutionary changes across industries.",
+        excerpt:
+          "Technology continues to evolve at an unprecedented pace, bringing revolutionary changes across industries.",
         tags: ["technology", "innovation", "business", "digital"],
         readTime: 5,
       },
       {
         title: "Sustainable Business Practices Gaining Momentum",
-        description: "Companies worldwide are adopting sustainable practices to reduce environmental impact while maintaining profitability and growth.",
+        description:
+          "Companies worldwide are adopting sustainable practices to reduce environmental impact while maintaining profitability and growth.",
         category: "business",
         keywords: ["sustainability", "business", "environment", "green technology", "ESG"],
         source: "Fallback",
         publishedAt: new Date(),
         thumbnail: "/placeholder.svg?height=400&width=600",
-        excerpt: "Sustainability is becoming a core business strategy for companies looking to future-proof their operations.",
+        excerpt:
+          "Sustainability is becoming a core business strategy for companies looking to future-proof their operations.",
         tags: ["business", "sustainability", "environment", "strategy"],
         readTime: 4,
       },
       {
         title: "Health and Wellness Trends Shaping Consumer Behavior",
-        description: "The growing focus on health and wellness is influencing consumer choices and creating new market opportunities across various sectors.",
+        description:
+          "The growing focus on health and wellness is influencing consumer choices and creating new market opportunities across various sectors.",
         category: "health",
         keywords: ["health", "wellness", "lifestyle", "consumer behavior", "trends"],
         source: "Fallback",

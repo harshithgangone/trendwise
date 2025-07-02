@@ -58,22 +58,22 @@ export async function GET(request: NextRequest) {
     const tag = searchParams.get("tag") || ""
 
     // Try to fetch from backend first
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
     try {
       console.log("🔍 [FRONTEND API] Attempting to fetch articles from backend database...")
-      const response = await fetch(
-        `${backendUrl}/api/articles?page=${page}&limit=${limit}&search=${search}&tag=${tag}`,
-        {
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          // Add timeout to prevent hanging
-          signal: AbortSignal.timeout(5000),
+      const apiUrl = `${backendUrl}/api/articles?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&tag=${encodeURIComponent(tag)}`
+      console.log("🔗 [FRONTEND API] API URL:", apiUrl)
+
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
         },
-      )
+        // Add timeout to prevent hanging
+        signal: AbortSignal.timeout(10000),
+      })
 
       if (response.ok) {
         const data = await response.json()
