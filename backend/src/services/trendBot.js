@@ -1,344 +1,415 @@
 const mongoose = require("mongoose")
 const Article = require("../models/Article")
-const gnewsService = require("./gnewsService")
-const groqService = require("./groqService")
+const { generateArticleContent } = require("./groqService")
+const { fetchGNewsArticles } = require("./gnewsService")
+const { getUnsplashImage } = require("./unsplashService")
 const slugify = require("slugify")
 
 class TrendBot {
   constructor() {
     this.isRunning = false
-    this.intervalId = null
-    this.cycleCount = 0
-    this.lastRunTime = null
+    this.enabled = true
+    this.lastRun = null
     this.stats = {
       totalArticles: 0,
-      successfulGenerations: 0,
-      failedGenerations: 0,
+      successfulRuns: 0,
+      failedRuns: 0,
       lastError: null,
+      gnewsUsageToday: 0,
+      lastGNewsReset: new Date().toDateString(),
     }
-
-    console.log("🤖 [TREND BOT] Initialized")
+    this.runInterval = null
   }
 
   async start() {
-    if (this.isRunning) {
-      console.log("⚠️ [TREND BOT] Already running")
+    if (this.runInterval) {
+      console.log("TrendBot is already running")
       return
     }
 
-    console.log("🚀 [TREND BOT] Starting TrendBot...")
-    this.isRunning = true
+    console.log("🤖 Starting TrendBot...")
+    this.enabled = true
 
-    // Run immediately on startup
-    console.log("🔄 [TREND BOT] Running initial cycle...")
+    // Run immediately on start
     await this.runCycle()
 
     // Then run every 5 minutes
-    this.intervalId = setInterval(
+    this.runInterval = setInterval(
       async () => {
-        await this.runCycle()
+        if (this.enabled && !this.isRunning) {
+          await this.runCycle()
+        }
       },
       5 * 60 * 1000,
     ) // 5 minutes
 
-    console.log("✅ [TREND BOT] Started successfully - running every 5 minutes")
+    console.log("✅ TrendBot started successfully")
   }
 
   async stop() {
-    if (!this.isRunning) {
-      console.log("⚠️ [TREND BOT] Not running")
-      return
+    console.log("🛑 Stopping TrendBot...")
+    this.enabled = false
+
+    if (this.runInterval) {
+      clearInterval(this.runInterval)
+      this.runInterval = null
     }
 
-    console.log("🛑 [TREND BOT] Stopping TrendBot...")
-    this.isRunning = false
-
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = null
-    }
-
-    console.log("✅ [TREND BOT] Stopped successfully")
+    console.log("✅ TrendBot stopped")
   }
 
   async runCycle() {
-    if (!this.isRunning) {
-      console.log("⚠️ [TREND BOT] Bot is stopped, skipping cycle")
+    if (this.isRunning) {
+      console.log("⏳ TrendBot cycle already in progress, skipping...")
       return
     }
 
-    this.cycleCount++
-    this.lastRunTime = new Date()
+    this.isRunning = true
+    this.lastRun = new Date()
 
-    console.log(`\n🔄 [TREND BOT] Starting cycle #${this.cycleCount} at ${this.lastRunTime.toISOString()}`)
+    console.log("🚀 Starting TrendBot cycle...")
 
     try {
-      // Step 1: Fetch trending news
-      console.log("📰 [TREND BOT] Fetching trending news...")
-      const newsItems = await gnewsService.getTrendingNews()
-
-      if (!newsItems || newsItems.length === 0) {
-        console.log("⚠️ [TREND BOT] No news items found")
-        return
+      // Reset daily GNews usage counter
+      const today = new Date().toDateString()
+      if (this.stats.lastGNewsReset !== today) {
+        this.stats.gnewsUsageToday = 0
+        this.stats.lastGNewsReset = today
+        console.log("📅 Reset daily GNews usage counter")
       }
 
-      console.log(`📊 [TREND BOT] Found ${newsItems.length} news items`)
+      // Health check
+      if (!(await this.healthCheck())) {
+        throw new Error("Health check failed")
+      }
 
-      // Step 2: Process each news item
-      const results = await this.generateArticles(newsItems)
+      const articlesGenerated = await this.generateArticles()
 
-      // Step 3: Update stats
-      this.updateStats(results)
+      this.stats.totalArticles += articlesGenerated
+      this.stats.successfulRuns++
+      this.stats.lastError = null
 
-      console.log(`✅ [TREND BOT] Cycle #${this.cycleCount} completed successfully`)
-      console.log(`📈 [TREND BOT] Generated ${results.successful} articles, ${results.failed} failed`)
+      console.log(`✅ TrendBot cycle completed successfully. Generated ${articlesGenerated} articles.`)
     } catch (error) {
-      console.error(`❌ [TREND BOT] Cycle #${this.cycleCount} failed:`, error.message)
+      console.error("❌ TrendBot cycle failed:", error)
+      this.stats.failedRuns++
       this.stats.lastError = error.message
+    } finally {
+      this.isRunning = false
     }
   }
 
-  async generateArticles(newsItems) {
-    console.log(`🤖 [TREND BOT] Processing ${newsItems.length} news items...`)
+  async healthCheck() {
+    try {
+      // Check database connection
+      const articleCount = await Article.countDocuments()
+      console.log(`📊 Database health check: ${articleCount} articles in database`)
 
-    let successful = 0
-    let failed = 0
+      // Check if we have required environment variables
+      const requiredEnvVars = ["GNEWS_API_KEY"]
+      const missingVars = requiredEnvVars.filter((varName) => !process.env[varName])
 
-    for (let i = 0; i < newsItems.length; i++) {
-      const newsItem = newsItems[i]
-      console.log(`\n📝 Processing article ${i + 1}/${newsItems.length}: ${newsItem.title.substring(0, 50)}...`)
+      if (missingVars.length > 0) {
+        console.warn(`⚠️ Missing environment variables: ${missingVars.join(", ")}`)
+      }
 
-      try {
-        // Check if article already exists
-        const existingArticle = await Article.findOne({
-          $or: [{ title: newsItem.title }, { sourceUrl: newsItem.url }],
-        })
+      return true
+    } catch (error) {
+      console.error("❌ Health check failed:", error)
+      return false
+    }
+  }
 
-        if (existingArticle) {
-          console.log(`⏭️ Article already exists: ${newsItem.title.substring(0, 50)}...`)
-          continue
-        }
+  async generateArticles() {
+    console.log("📰 Fetching trending news...")
 
-        // Generate slug
-        const slug = this.generateSlug(newsItem.title)
-        if (!slug) {
-          console.log(`❌ Failed to generate slug for: ${newsItem.title}`)
-          failed++
-          continue
-        }
+    try {
+      // Fetch news from GNews
+      const newsArticles = await fetchGNewsArticles(10)
 
-        // Check if slug already exists
-        const existingSlug = await Article.findOne({ slug })
-        if (existingSlug) {
-          console.log(`⏭️ Slug already exists: ${slug}`)
-          continue
-        }
+      if (!newsArticles || newsArticles.length === 0) {
+        console.warn("⚠️ No news articles fetched")
+        return 0
+      }
 
-        // Generate AI content
-        console.log("🤖 Generating AI content...")
-        let retryCount = 0
-        let aiContent = null
+      console.log(`📊 Fetched ${newsArticles.length} news articles`)
 
-        while (retryCount < 3 && !aiContent) {
-          try {
-            retryCount++
-            console.log(`🤖 Generating AI content (attempt ${retryCount}/3)...`)
-            aiContent = await groqService.generateArticleContent(newsItem)
-            console.log("✅ AI content generated successfully")
-            break
-          } catch (error) {
-            console.error(`❌ AI generation failed (attempt ${retryCount}):`, error.message)
-            if (retryCount < 3) {
-              console.log(`⏳ Waiting ${retryCount * 2}s before retry...`)
-              await new Promise((resolve) => setTimeout(resolve, retryCount * 2000))
+      let articlesGenerated = 0
+
+      for (const newsItem of newsArticles) {
+        try {
+          // Check if article already exists
+          const existingArticle = await Article.findOne({
+            $or: [{ title: newsItem.title }, { url: newsItem.url }],
+          })
+
+          if (existingArticle) {
+            console.log(`⏭️ Article already exists: ${newsItem.title.substring(0, 50)}...`)
+            continue
+          }
+
+          console.log(`🔄 Processing: ${newsItem.title.substring(0, 50)}...`)
+
+          // Generate enhanced content using Groq
+          const enhancedContent = await generateArticleContent(newsItem)
+
+          // Generate slug with fallbacks
+          let slug = this.generateSlug(enhancedContent.title || newsItem.title)
+
+          // Ensure slug is unique
+          let slugCounter = 1
+          const originalSlug = slug
+          while (await Article.findOne({ slug })) {
+            slug = `${originalSlug}-${slugCounter}`
+            slugCounter++
+          }
+
+          // Get featured image
+          let featuredImage = newsItem.urlToImage
+          if (!featuredImage) {
+            try {
+              const imageQuery = enhancedContent.tags?.[0] || "technology"
+              featuredImage = await getUnsplashImage(imageQuery)
+            } catch (imageError) {
+              console.warn("⚠️ Failed to get Unsplash image:", imageError.message)
+              featuredImage = `https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=400&fit=crop`
             }
           }
+
+          // Create article object
+          const articleData = {
+            title: enhancedContent.title || newsItem.title,
+            slug: slug,
+            content: enhancedContent.content || this.generateFallbackContent(newsItem),
+            excerpt: enhancedContent.excerpt || newsItem.description?.substring(0, 200) + "...",
+            featuredImage: featuredImage,
+            category: this.categorizeArticle(newsItem.title + " " + (newsItem.description || "")),
+            tags: enhancedContent.tags || this.extractTags(newsItem.title + " " + (newsItem.description || "")),
+            author: "TrendBot AI",
+            status: "published",
+            publishedAt: new Date(),
+            source: {
+              name: newsItem.source?.name || "News Source",
+              url: newsItem.url,
+            },
+            seo: {
+              metaTitle: (enhancedContent.title || newsItem.title).substring(0, 60),
+              metaDescription: (enhancedContent.excerpt || newsItem.description || "").substring(0, 160),
+              keywords: (enhancedContent.tags || []).join(", "),
+            },
+            readTime:
+              enhancedContent.readTime || this.calculateReadTime(enhancedContent.content || newsItem.description || ""),
+            views: 0,
+            likes: 0,
+            shares: 0,
+            comments: [],
+            trending: true,
+            trendScore: this.calculateTrendScore(newsItem),
+            aiGenerated: true,
+            tweets: enhancedContent.tweets || [],
+          }
+
+          // Save to database
+          const article = new Article(articleData)
+          await article.save()
+
+          console.log(`✅ Article created: ${article.title.substring(0, 50)}... (${article.slug})`)
+          articlesGenerated++
+
+          // Add delay between articles to avoid overwhelming the system
+          await new Promise((resolve) => setTimeout(resolve, 2000))
+        } catch (articleError) {
+          console.error(`❌ Failed to process article "${newsItem.title.substring(0, 50)}...":`, articleError.message)
+          continue
         }
-
-        if (!aiContent) {
-          console.log("⚠️ Using fallback content generation...")
-          aiContent = this.generateFallbackContent(newsItem)
-        }
-
-        // Create article object
-        const articleData = {
-          title: aiContent.title || newsItem.title,
-          slug: slug,
-          content: aiContent.content || `<p>${newsItem.description}</p>`,
-          excerpt: aiContent.excerpt || newsItem.description?.substring(0, 160) + "...",
-          author: "TrendWise AI",
-          category: this.categorizeArticle(newsItem.title, newsItem.description),
-          tags: aiContent.tags || ["trending", "news"],
-          featuredImage: newsItem.urlToImage || "/placeholder.svg?height=400&width=800",
-          sourceUrl: newsItem.url,
-          sourceName: newsItem.source?.name || "Unknown Source",
-          publishedAt: new Date(newsItem.publishedAt) || new Date(),
-          readTime: this.calculateReadTime(aiContent.content || newsItem.description),
-          views: 0,
-          likes: 0,
-          saves: 0,
-          status: "published",
-          seo: aiContent.seo || {
-            metaTitle: newsItem.title,
-            metaDescription: newsItem.description?.substring(0, 160),
-            keywords: "trending, news, current events",
-          },
-        }
-
-        // Save to database
-        const article = new Article(articleData)
-        await article.save()
-
-        console.log(`✅ Article saved: ${article.title.substring(0, 50)}...`)
-        successful++
-        this.stats.totalArticles++
-      } catch (error) {
-        console.error(`❌ Failed to process article: ${newsItem.title} ${error.message}`)
-        failed++
-        this.stats.failedGenerations++
       }
 
-      // Add delay between articles to avoid rate limiting
-      if (i < newsItems.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-      }
+      return articlesGenerated
+    } catch (error) {
+      console.error("❌ Error generating articles:", error)
+      return 0
     }
-
-    return { successful, failed }
   }
 
   generateSlug(title) {
-    if (!title || typeof title !== "string") {
-      console.log("⚠️ Invalid title for slug generation, using fallback")
-      return `article-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+    if (!title) {
+      return `article-${Date.now()}`
     }
 
-    try {
-      let slug = title
-        .toLowerCase()
-        .trim()
-        .replace(/[^\w\s-]/g, "") // Remove special characters
-        .replace(/[\s_-]+/g, "-") // Replace spaces and underscores with hyphens
-        .replace(/^-+|-+$/g, "") // Remove leading/trailing hyphens
-
-      // Ensure slug is not empty
-      if (!slug || slug.length === 0) {
-        slug = `article-${Date.now()}`
-      }
-
-      // Limit slug length
-      if (slug.length > 100) {
-        slug = slug.substring(0, 100).replace(/-[^-]*$/, "")
-      }
-
-      // Add timestamp if slug is too short or generic
-      if (slug.length < 3 || slug === "article") {
-        slug = `${slug}-${Date.now()}`
-      }
-
-      console.log(`📝 Generated slug: ${slug}`)
-      return slug
-    } catch (error) {
-      console.error("❌ Error generating slug:", error.message)
-      return `article-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-    }
+    return slugify(title, {
+      lower: true,
+      strict: true,
+      remove: /[*+~.()'"!:@]/g,
+    }).substring(0, 100)
   }
 
   generateFallbackContent(newsItem) {
-    console.log("🎭 Generating fallback content...")
+    const title = newsItem.title || "Breaking News"
+    const description = newsItem.description || "Latest news update"
 
-    const title = newsItem.title || "Breaking News Update"
-    const description = newsItem.description || "Latest news and updates"
-
-    return {
-      title: title,
-      content: `
+    return `
+      <div class="article-content">
         <h2>${title}</h2>
-        <p>${description}</p>
-        <p>This article is based on breaking news from ${newsItem.source?.name || "our news sources"}. 
-        We are continuously updating our content to provide you with the most accurate and up-to-date information.</p>
+        <p class="lead">${description}</p>
+        
         <h3>Key Points</h3>
         <ul>
-          <li>Breaking news development</li>
-          <li>Ongoing story coverage</li>
-          <li>Regular updates available</li>
+          <li>Breaking news development in the industry</li>
+          <li>Significant impact on current market trends</li>
+          <li>Expert analysis and insights</li>
+          <li>Future implications and predictions</li>
         </ul>
-        <h3>Stay Informed</h3>
-        <p>Follow TrendWise for the latest updates on this developing story and other trending topics.</p>
-      `,
-      excerpt: description.substring(0, 150) + "...",
-      tags: ["Breaking News", "Current Events", "Trending"],
-      seo: {
-        metaTitle: title.substring(0, 60),
-        metaDescription: description.substring(0, 160),
-        keywords: "breaking news, current events, trending topics",
-      },
-    }
+        
+        <h3>Analysis</h3>
+        <p>This development represents a significant shift in the current landscape. Industry experts are closely monitoring the situation as it continues to evolve.</p>
+        
+        <p>The implications of this news extend beyond immediate effects, potentially influencing long-term strategies and market dynamics across multiple sectors.</p>
+        
+        <h3>What This Means</h3>
+        <p>For businesses and consumers alike, this news signals important changes ahead. Staying informed about these developments will be crucial for making informed decisions.</p>
+        
+        <p><em>This is a developing story. We will continue to update this article as more information becomes available.</em></p>
+      </div>
+    `
   }
 
-  categorizeArticle(title, description) {
-    const text = `${title} ${description}`.toLowerCase()
-
+  categorizeArticle(text) {
     const categories = {
-      technology: ["tech", "ai", "artificial intelligence", "software", "app", "digital", "cyber", "data"],
-      business: ["business", "economy", "market", "finance", "company", "startup", "investment"],
-      health: ["health", "medical", "doctor", "hospital", "disease", "treatment", "medicine"],
-      science: ["science", "research", "study", "discovery", "scientist", "experiment"],
-      sports: ["sport", "game", "player", "team", "match", "championship", "olympic"],
-      entertainment: ["movie", "music", "celebrity", "actor", "film", "show", "entertainment"],
-      politics: ["politic", "government", "election", "president", "minister", "policy"],
+      Technology: ["tech", "ai", "software", "digital", "innovation", "startup", "app", "platform"],
+      Business: ["business", "finance", "economy", "market", "investment", "company", "corporate"],
+      Health: ["health", "medical", "healthcare", "medicine", "wellness", "hospital", "doctor"],
+      Science: ["science", "research", "study", "discovery", "breakthrough", "experiment"],
+      Environment: ["environment", "climate", "green", "sustainable", "energy", "renewable"],
+      Sports: ["sports", "game", "team", "player", "championship", "league"],
+      Entertainment: ["entertainment", "movie", "music", "celebrity", "show", "film"],
     }
 
+    const lowerText = text.toLowerCase()
+
     for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some((keyword) => text.includes(keyword))) {
-        return category.charAt(0).toUpperCase() + category.slice(1)
+      if (keywords.some((keyword) => lowerText.includes(keyword))) {
+        return category
       }
     }
 
     return "General"
   }
 
-  calculateReadTime(content) {
-    if (!content) return 1
+  extractTags(text) {
+    const commonTags = [
+      "Technology",
+      "AI",
+      "Innovation",
+      "Business",
+      "Startup",
+      "Digital",
+      "Science",
+      "Health",
+      "Environment",
+      "Finance",
+      "Security",
+      "Mobile",
+      "Cloud",
+      "Data",
+      "Analytics",
+      "Blockchain",
+      "IoT",
+      "Automation",
+      "Sustainability",
+      "Research",
+    ]
 
-    const wordsPerMinute = 200
-    const wordCount = content.split(/\s+/).length
-    const readTime = Math.ceil(wordCount / wordsPerMinute)
+    const foundTags = commonTags.filter((tag) => text.toLowerCase().includes(tag.toLowerCase()))
 
-    return Math.max(1, readTime)
+    return foundTags.length > 0 ? foundTags.slice(0, 5) : ["Technology", "News"]
   }
 
-  updateStats(results) {
-    this.stats.successfulGenerations += results.successful
-    this.stats.failedGenerations += results.failed
-    this.stats.lastError = null
+  calculateReadTime(content) {
+    const wordsPerMinute = 200
+    const wordCount = content.split(" ").length
+    return Math.max(1, Math.ceil(wordCount / wordsPerMinute))
+  }
+
+  calculateTrendScore(article) {
+    let score = 50 // Base score
+
+    // Recent articles get higher scores
+    const publishedDate = new Date(article.publishedAt || Date.now())
+    const hoursAgo = (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60)
+
+    if (hoursAgo < 1) score += 30
+    else if (hoursAgo < 6) score += 20
+    else if (hoursAgo < 24) score += 10
+
+    // Articles with images get bonus
+    if (article.urlToImage) score += 10
+
+    // Longer descriptions get bonus
+    if (article.description && article.description.length > 100) score += 5
+
+    // Source reputation bonus
+    if (article.source?.name && !article.source.name.includes("Unknown")) score += 5
+
+    return Math.min(100, score)
+  }
+
+  async cleanupOldArticles() {
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+      const result = await Article.deleteMany({
+        publishedAt: { $lt: thirtyDaysAgo },
+        views: { $lt: 10 }, // Only delete articles with low engagement
+      })
+
+      if (result.deletedCount > 0) {
+        console.log(`🧹 Cleaned up ${result.deletedCount} old articles`)
+      }
+    } catch (error) {
+      console.error("❌ Error cleaning up old articles:", error)
+    }
   }
 
   getStatus() {
     return {
       isRunning: this.isRunning,
-      cycleCount: this.cycleCount,
-      lastRunTime: this.lastRunTime,
+      enabled: this.enabled,
+      lastRun: this.lastRun,
       stats: this.stats,
-      nextRunTime: this.isRunning && this.lastRunTime ? new Date(this.lastRunTime.getTime() + 5 * 60 * 1000) : null,
+      nextRun: this.runInterval ? new Date(Date.now() + 5 * 60 * 1000) : null,
     }
+  }
+
+  getStats() {
+    return this.stats
+  }
+
+  async toggle() {
+    if (this.enabled) {
+      await this.stop()
+    } else {
+      await this.start()
+    }
+    return this.enabled
   }
 
   async triggerManualRun() {
-    if (!this.isRunning) {
-      console.log("⚠️ [TREND BOT] Bot is not running, cannot trigger manual run")
-      return { success: false, message: "Bot is not running" }
+    if (this.isRunning) {
+      throw new Error("Bot is already running")
     }
 
-    console.log("🔄 [TREND BOT] Manual run triggered")
-    try {
-      await this.runCycle()
-      return { success: true, message: "Manual run completed successfully" }
-    } catch (error) {
-      console.error("❌ [TREND BOT] Manual run failed:", error.message)
-      return { success: false, message: error.message }
-    }
+    console.log("🔄 Manual trigger requested")
+    await this.runCycle()
+    return this.getStatus()
   }
 }
 
-module.exports = new TrendBot()
+// Create singleton instance
+const trendBot = new TrendBot()
+
+// Auto-start the bot
+trendBot.start().catch((error) => {
+  console.error("❌ Failed to start TrendBot:", error)
+})
+
+module.exports = trendBot

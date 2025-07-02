@@ -1,6 +1,5 @@
 const axios = require("axios")
 const cheerio = require("cheerio")
-const fetch = require("node-fetch")
 
 class GNewsService {
   constructor() {
@@ -106,8 +105,8 @@ class GNewsService {
     })
   }
 
-  async getTrendingTopics(limit = 50) {
-    console.log("🔍 [GNEWS SERVICE] Starting trending topics fetch...")
+  async getTrendingNews(limit = 50) {
+    console.log("🔍 [GNEWS SERVICE] Starting trending news fetch...")
     console.log(`📊 [GNEWS SERVICE] Limit: ${limit}, API Key: ${this.apiKey ? "Present" : "Missing"}`)
 
     // Try GNews API first if API key is available
@@ -115,8 +114,8 @@ class GNewsService {
       try {
         console.log("🌐 [GNEWS SERVICE] Attempting GNews API request...")
         const result = await this.fetchFromGNewsAPI(limit)
-        if (result.success) {
-          console.log(`✅ [GNEWS SERVICE] Successfully fetched ${result.trends.length} articles from GNews API`)
+        if (result && result.length > 0) {
+          console.log(`✅ [GNEWS SERVICE] Successfully fetched ${result.length} articles from GNews API`)
           return result
         }
       } catch (error) {
@@ -126,7 +125,14 @@ class GNewsService {
 
     // Fallback to web scraping
     console.log("🔄 [GNEWS SERVICE] Falling back to web scraping...")
-    return await this.scrapeGoogleNews(limit)
+    const scrapedResult = await this.scrapeGoogleNews(limit)
+    if (scrapedResult && scrapedResult.length > 0) {
+      return scrapedResult
+    }
+
+    // Final fallback to hardcoded articles
+    console.log("🎭 [GNEWS SERVICE] Using fallback articles...")
+    return this.getFallbackArticles(limit)
   }
 
   async fetchFromGNewsAPI(limit = 50) {
@@ -138,7 +144,7 @@ class GNewsService {
           apikey: this.apiKey,
           lang: "en",
           country: "us",
-          max: limit, // Get all available articles up to limit
+          max: limit,
         },
         timeout: this.requestTimeout,
         headers: {
@@ -152,15 +158,18 @@ class GNewsService {
       if (response.data && response.data.articles) {
         const processedArticles = response.data.articles.map((article, index) => {
           console.log(`🔄 [GNEWS SERVICE] Processing article ${index + 1}: "${article.title?.substring(0, 50)}..."`)
-          console.log(`🖼️ [GNEWS SERVICE] Image URL: ${article.image || "No image"}`)
 
           return {
             title: article.title || "Untitled Article",
             description: article.description || "No description available",
+            content: article.content || article.description || "No content available",
             url: article.url,
+            urlToImage: article.image,
             publishedAt: article.publishedAt || new Date().toISOString(),
-            source: article.source?.name || "GNews",
-            image: article.image, // Use the actual image URL from GNews API
+            source: {
+              name: article.source?.name || "GNews",
+              url: article.source?.url || "",
+            },
             category: this.categorizeArticle(article.title + " " + (article.description || "")),
             tags: this.extractTags(article.title + " " + (article.description || "")),
             score: this.calculateTrendScore(article),
@@ -168,12 +177,7 @@ class GNewsService {
         })
 
         console.log(`✅ [GNEWS SERVICE] Successfully processed ${processedArticles.length} articles from API`)
-        return {
-          success: true,
-          trends: processedArticles,
-          source: "gnews_api",
-          timestamp: new Date().toISOString(),
-        }
+        return processedArticles
       }
 
       throw new Error("No articles found in API response")
@@ -229,16 +233,10 @@ class GNewsService {
       const uniqueArticles = this.removeDuplicates(allArticles).slice(0, limit)
 
       console.log(`✅ [GNEWS SERVICE] Scraping completed. Found ${uniqueArticles.length} unique articles`)
-
-      return {
-        success: true,
-        trends: uniqueArticles,
-        source: "google_news_scraping",
-        timestamp: new Date().toISOString(),
-      }
+      return uniqueArticles
     } catch (error) {
       console.error("❌ [GNEWS SERVICE] Scraping failed:", error.message)
-      return this.getFallbackArticles(limit)
+      return []
     }
   }
 
@@ -278,10 +276,14 @@ class GNewsService {
           articles.push({
             title: this.cleanTitle(title),
             description: this.cleanDescription(description),
+            content: this.cleanDescription(description),
             url: link,
+            urlToImage: null,
             publishedAt: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
-            source: source || "Google News",
-            image: null, // RSS doesn't provide images
+            source: {
+              name: source || "Google News",
+              url: "",
+            },
             category: this.categorizeArticle(title + " " + description),
             tags: this.extractTags(title + " " + description),
             score: this.calculateTrendScore({ title, description, publishedAt: pubDate }),
@@ -297,98 +299,128 @@ class GNewsService {
     }
   }
 
-  getFallbackArticles(limit = 50) {
+  getFallbackArticles(limit = 10) {
     console.log("🎭 [GNEWS SERVICE] Using fallback articles...")
 
     const fallbackArticles = [
       {
         title: "AI Revolution: How Machine Learning is Transforming Industries",
         description:
-          "Artificial Intelligence continues to reshape various sectors, from healthcare to finance, creating new opportunities and challenges.",
+          "Artificial Intelligence continues to reshape various sectors, from healthcare to finance, creating new opportunities and challenges for businesses worldwide.",
+        content:
+          "Artificial Intelligence continues to reshape various sectors, from healthcare to finance, creating new opportunities and challenges for businesses worldwide. Machine learning algorithms are now being deployed across industries to automate processes, improve decision-making, and enhance customer experiences.",
+        url: "https://example.com/ai-revolution",
+        urlToImage: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=400&fit=crop",
+        publishedAt: new Date().toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Technology",
-        tags: ["AI", "Machine Learning", "Technology", "Innovation"],
-        image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&h=400&fit=crop",
+        tags: ["AI", "Technology", "Innovation", "Business"],
+        score: 95,
       },
       {
-        title: "Sustainable Tech: Green Innovation Leading the Future",
+        title: "Sustainable Technology: Green Innovation Leading the Future",
         description:
-          "Environmental technology solutions are gaining momentum as companies prioritize sustainability and carbon neutrality.",
+          "Environmental technology solutions are gaining momentum as companies prioritize sustainability and carbon neutrality in their operations.",
+        content:
+          "Environmental technology solutions are gaining momentum as companies prioritize sustainability and carbon neutrality in their operations. From renewable energy systems to carbon capture technologies, green innovation is becoming a key driver of economic growth.",
+        url: "https://example.com/sustainable-tech",
+        urlToImage: "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 3600000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Environment",
         tags: ["Sustainability", "Green Tech", "Environment", "Innovation"],
-        image: "https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=800&h=400&fit=crop",
+        score: 88,
       },
       {
         title: "Cybersecurity Trends: Protecting Digital Assets in 2024",
         description:
-          "As cyber threats evolve, organizations are adopting advanced security measures to protect sensitive data and systems.",
-        category: "Security",
+          "As cyber threats evolve, organizations are adopting advanced security measures to protect sensitive data and systems from malicious attacks.",
+        content:
+          "As cyber threats evolve, organizations are adopting advanced security measures to protect sensitive data and systems from malicious attacks. Zero-trust architecture, AI-powered threat detection, and quantum-resistant encryption are becoming essential components of modern cybersecurity strategies.",
+        url: "https://example.com/cybersecurity-trends",
+        urlToImage: "https://images.unsplash.com/photo-1550751827485-074b7f938ba0?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
+        category: "Technology",
         tags: ["Cybersecurity", "Data Protection", "Technology", "Security"],
-        image: "https://images.unsplash.com/photo-1550751827485-074b7f938ba0?w=800&h=400&fit=crop",
+        score: 92,
       },
       {
         title: "Remote Work Evolution: The Future of Digital Collaboration",
         description:
-          "Remote work technologies continue to evolve, enabling better collaboration and productivity across distributed teams.",
+          "Remote work technologies continue to evolve, enabling better collaboration and productivity across distributed teams worldwide.",
+        content:
+          "Remote work technologies continue to evolve, enabling better collaboration and productivity across distributed teams worldwide. Virtual reality meetings, AI-powered productivity tools, and advanced project management platforms are reshaping how we work.",
+        url: "https://example.com/remote-work-evolution",
+        urlToImage: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Business",
         tags: ["Remote Work", "Collaboration", "Technology", "Business"],
-        image: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?w=800&h=400&fit=crop",
+        score: 85,
       },
       {
-        title: "Blockchain Beyond Crypto: Real-World Applications",
+        title: "Blockchain Beyond Cryptocurrency: Real-World Applications",
         description:
-          "Blockchain technology finds new applications in supply chain, healthcare, and digital identity management.",
+          "Blockchain technology finds new applications in supply chain management, healthcare, and digital identity verification systems.",
+        content:
+          "Blockchain technology finds new applications in supply chain management, healthcare, and digital identity verification systems. Smart contracts, decentralized finance, and NFTs are just the beginning of blockchain's potential impact on various industries.",
+        url: "https://example.com/blockchain-applications",
+        urlToImage: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Technology",
         tags: ["Blockchain", "Technology", "Innovation", "Digital"],
-        image: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800&h=400&fit=crop",
+        score: 78,
       },
       {
-        title: "Healthcare Innovation: Digital Health Solutions",
-        description: "Digital health platforms are revolutionizing patient care and medical research worldwide.",
+        title: "Healthcare Innovation: Digital Health Solutions Transform Patient Care",
+        description:
+          "Digital health platforms are revolutionizing patient care and medical research, improving outcomes and accessibility worldwide.",
+        content:
+          "Digital health platforms are revolutionizing patient care and medical research, improving outcomes and accessibility worldwide. Telemedicine, AI diagnostics, and wearable health monitors are making healthcare more personalized and accessible than ever before.",
+        url: "https://example.com/healthcare-innovation",
+        urlToImage: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 18000000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Health",
         tags: ["Healthcare", "Digital Health", "Innovation", "Medicine"],
-        image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=800&h=400&fit=crop",
+        score: 90,
       },
       {
-        title: "Space Technology: Commercial Space Race Heats Up",
-        description: "Private companies are driving innovation in space exploration and satellite technology.",
+        title: "Space Technology: Commercial Space Race Accelerates Innovation",
+        description:
+          "Private companies are driving unprecedented innovation in space exploration and satellite technology, opening new frontiers.",
+        content:
+          "Private companies are driving unprecedented innovation in space exploration and satellite technology, opening new frontiers. Reusable rockets, satellite constellations, and space tourism are making space more accessible and commercially viable.",
+        url: "https://example.com/space-technology",
+        urlToImage: "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 21600000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Science",
         tags: ["Space", "Technology", "Innovation", "Science"],
-        image: "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+        score: 87,
       },
       {
-        title: "Electric Vehicle Market: Charging Towards the Future",
-        description: "EV adoption accelerates as charging infrastructure expands and battery technology improves.",
+        title: "Electric Vehicle Revolution: Charging Towards a Sustainable Future",
+        description:
+          "Electric vehicle adoption accelerates as charging infrastructure expands and battery technology continues to improve rapidly.",
+        content:
+          "Electric vehicle adoption accelerates as charging infrastructure expands and battery technology continues to improve rapidly. Solid-state batteries, wireless charging, and autonomous driving features are making EVs more attractive to consumers worldwide.",
+        url: "https://example.com/electric-vehicles",
+        urlToImage: "https://images.unsplash.com/photo-1593941707882-a5bac6861d75?w=800&h=400&fit=crop",
+        publishedAt: new Date(Date.now() - 25200000).toISOString(),
+        source: { name: "TrendWise Fallback", url: "" },
         category: "Technology",
         tags: ["Electric Vehicles", "Technology", "Environment", "Innovation"],
-        image: "https://images.unsplash.com/photo-1593941707882-a5bac6861d75?w=800&h=400&fit=crop",
+        score: 83,
       },
     ]
 
-    // Repeat articles to reach the limit
-    const repeatedArticles = []
-    while (repeatedArticles.length < limit) {
-      const remaining = limit - repeatedArticles.length
-      const articlesToAdd = fallbackArticles.slice(0, Math.min(remaining, fallbackArticles.length))
-      repeatedArticles.push(...articlesToAdd)
-    }
-
-    const processedArticles = repeatedArticles.map((article, index) => ({
-      ...article,
-      url: `https://example.com/article-${index + 1}`,
-      publishedAt: new Date(Date.now() - index * 3600000).toISOString(),
-      source: "TrendWise Fallback",
-      score: Math.floor(Math.random() * 50) + 50,
-    }))
-
-    console.log(`🎭 [GNEWS SERVICE] Generated ${processedArticles.length} fallback articles`)
-
-    return {
-      success: false,
-      trends: processedArticles,
-      source: "fallback_articles",
-      timestamp: new Date().toISOString(),
-      reason: "Using fallback articles due to API/scraping limitations",
-    }
+    // Return the requested number of articles
+    const articles = fallbackArticles.slice(0, limit)
+    console.log(`🎭 [GNEWS SERVICE] Generated ${articles.length} fallback articles`)
+    return articles
   }
 
   // Utility methods
@@ -418,7 +450,7 @@ class GNewsService {
     else if (hoursAgo < 24) score += 10
 
     // Articles with images get bonus
-    if (article.image) score += 10
+    if (article.image || article.urlToImage) score += 10
 
     // Longer descriptions get bonus
     if (article.description && article.description.length > 100) score += 5
@@ -469,13 +501,7 @@ class GNewsService {
     }
 
     try {
-      const {
-        category = "general",
-        country = "us",
-        lang = "en",
-        max = 50, // Increased from 3 to get more articles
-        q = null,
-      } = options
+      const { category = "general", country = "us", lang = "en", max = 50, q = null } = options
 
       console.log(`📰 [GNEWS] Fetching news - Category: ${category}, Max: ${max}`)
 
@@ -490,7 +516,7 @@ class GNewsService {
 
       if (q) {
         params.q = q
-        delete params.category // Remove category when searching
+        delete params.category
       }
 
       const response = await axios.get(`${this.baseURL}/top-headlines`, {
@@ -501,16 +527,10 @@ class GNewsService {
       if (response.data && response.data.articles) {
         console.log(`✅ [GNEWS] Successfully fetched ${response.data.articles.length} articles`)
 
-        // Log image availability
-        const articlesWithImages = response.data.articles.filter((article) => article.image)
-        console.log(`🖼️ [GNEWS] ${articlesWithImages.length}/${response.data.articles.length} articles have images`)
-
         return {
           articles: response.data.articles.map((article) => ({
             ...article,
-            // Ensure image URL is properly formatted
             image: article.image || null,
-            // Add source information
             source: article.source || { name: "Unknown", url: "" },
           })),
           totalArticles: response.data.totalArticles || response.data.articles.length,
@@ -563,7 +583,6 @@ class GNewsService {
     })
   }
 
-  // Get diverse news from multiple categories
   async getDiverseNews(options = {}) {
     const categories = ["general", "technology", "business", "health", "science", "sports"]
     const articlesPerCategory = Math.ceil((options.max || 50) / categories.length)
@@ -590,7 +609,6 @@ class GNewsService {
         }
       })
 
-      // Remove duplicates based on URL
       const uniqueArticles = allArticles.filter(
         (article, index, self) => index === self.findIndex((a) => a.url === article.url),
       )
@@ -612,10 +630,10 @@ class GNewsService {
       console.log("📰 [GNEWS] Fetching trending news...")
 
       if (!this.apiKey) {
-        throw new Error("GNEWS_API_KEY is not configured")
+        console.log("⚠️ [GNEWS] No API key, using fallback articles")
+        return this.getFallbackArticles(50)
       }
 
-      // Fetch from multiple categories to get diverse content
       const categories = ["general", "business", "technology", "health", "science", "sports"]
       const allArticles = []
 
@@ -629,54 +647,57 @@ class GNewsService {
               lang: "en",
               country: "us",
               category: category,
-              max: 10, // Get 10 articles per category
-              nullable: "image,content", // Allow null values for image and content
+              max: 10,
+              nullable: "image,content",
             },
-            timeout: this.requestTimeout,
+            timeout: 10000,
           })
 
           if (response.data && response.data.articles) {
-            // Filter articles with valid content and add category info
             const validArticles = response.data.articles
               .filter(
                 (article) =>
                   article.title && article.description && article.title.length > 10 && article.description.length > 50,
               )
               .map((article) => ({
-                ...article,
+                title: article.title,
+                description: article.description,
+                content: article.content || article.description,
+                url: article.url,
+                urlToImage: article.image && article.image.startsWith("http") ? article.image : null,
+                publishedAt: article.publishedAt,
+                source: {
+                  name: article.source?.name || "GNews",
+                  url: article.source?.url || "",
+                },
                 category: category,
-                // Ensure image URL is properly formatted
-                image: article.image && article.image.startsWith("http") ? article.image : null,
+                tags: this.extractTags(article.title + " " + article.description),
+                score: this.calculateTrendScore(article),
               }))
 
             allArticles.push(...validArticles)
             console.log(`✅ [GNEWS] Found ${validArticles.length} valid articles in ${category}`)
           }
 
-          // Add delay between requests to respect rate limits
           await new Promise((resolve) => setTimeout(resolve, 1000))
         } catch (categoryError) {
           console.error(`❌ [GNEWS] Error fetching ${category} news:`, categoryError.message)
-          continue // Continue with other categories
+          continue
         }
       }
 
       if (allArticles.length === 0) {
-        throw new Error("No valid articles found from any category")
+        console.log("⚠️ [GNEWS] No articles from API, using fallback")
+        return this.getFallbackArticles(50)
       }
 
-      // Remove duplicates based on title similarity
       const uniqueArticles = this.removeDuplicates(allArticles)
-
       console.log(`🎉 [GNEWS] Successfully fetched ${uniqueArticles.length} unique articles`)
 
-      return {
-        totalArticles: uniqueArticles.length,
-        articles: uniqueArticles,
-      }
+      return uniqueArticles
     } catch (error) {
       console.error("❌ [GNEWS] Error fetching news:", error.message)
-      throw error
+      return this.getFallbackArticles(50)
     }
   }
 
@@ -685,14 +706,13 @@ class GNewsService {
     const unique = []
 
     for (const article of articles) {
-      // Create a simple hash based on title words
       const titleWords = article.title
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, "")
         .split(/\s+/)
         .filter((word) => word.length > 3)
         .sort()
-        .slice(0, 5) // Use first 5 significant words
+        .slice(0, 5)
         .join(" ")
 
       if (!seen.has(titleWords)) {
@@ -705,18 +725,25 @@ class GNewsService {
   }
 }
 
+// Create singleton instance
+const gnewsService = new GNewsService()
+
+// Export the instance and specific functions
+module.exports = gnewsService
+module.exports.GNewsService = GNewsService
+
+// Export specific functions for backward compatibility
 async function fetchGNewsArticles(count = 10) {
   const apiKey = process.env.GNEWS_API_KEY
 
   if (!apiKey) {
     console.error("❌ GNews API key not found")
-    return []
+    return gnewsService.getFallbackArticles(count)
   }
 
   try {
     console.log(`📰 Fetching ${count} articles from GNews API...`)
 
-    // Use multiple queries to get diverse content
     const queries = [
       "technology OR artificial intelligence OR AI",
       "business OR economy OR market",
@@ -765,7 +792,7 @@ async function fetchGNewsArticles(count = 10) {
               description: article.description,
               content: article.content || article.description,
               url: article.url,
-              image: article.image,
+              urlToImage: article.image,
               publishedAt: article.publishedAt,
               source: {
                 name: article.source?.name || "GNews",
@@ -777,7 +804,6 @@ async function fetchGNewsArticles(count = 10) {
           console.log(`✅ Found ${processedArticles.length} articles for query: ${query}`)
         }
 
-        // Add delay between requests to respect rate limits
         await new Promise((resolve) => setTimeout(resolve, 1000))
       } catch (error) {
         console.error(`❌ Error fetching articles for query "${query}":`, error.message)
@@ -785,7 +811,6 @@ async function fetchGNewsArticles(count = 10) {
       }
     }
 
-    // Remove duplicates and limit results
     const uniqueArticles = allArticles
       .filter(
         (article, index, self) => index === self.findIndex((a) => a.title === article.title || a.url === article.url),
@@ -796,11 +821,8 @@ async function fetchGNewsArticles(count = 10) {
     return uniqueArticles
   } catch (error) {
     console.error("❌ GNews service error:", error)
-    return []
+    return gnewsService.getFallbackArticles(count)
   }
 }
 
-module.exports = {
-  GNewsService,
-  fetchGNewsArticles,
-}
+module.exports.fetchGNewsArticles = fetchGNewsArticles
