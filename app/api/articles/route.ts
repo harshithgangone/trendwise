@@ -1,5 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+// Mark this route as dynamic since we're using query parameters
+export const dynamic = "force-dynamic"
+
 // Mock data for development - this ensures the frontend works even if backend is down
 const mockArticles = [
   {
@@ -49,22 +52,32 @@ const mockArticles = [
   },
 ]
 
-// ✅ SOLUTION 1: Use request.nextUrl.searchParams (RECOMMENDED)
 export async function GET(request: NextRequest) {
   try {
-    // ✅ Use searchParams directly from NextRequest - this is static-friendly
+    // Now we can safely use searchParams since route is marked as dynamic
     const { searchParams } = request.nextUrl
     const page = searchParams.get("page") || "1"
     const limit = searchParams.get("limit") || "10"
     const search = searchParams.get("search") || ""
     const tag = searchParams.get("tag") || ""
+    const category = searchParams.get("category") || ""
 
     // Try to fetch from backend first
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
     try {
       console.log("🔍 [FRONTEND API] Attempting to fetch articles from backend database...")
-      const apiUrl = `${backendUrl}/api/articles?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}&tag=${encodeURIComponent(tag)}`
+
+      // Build query parameters for backend API
+      const queryParams = new URLSearchParams({
+        page,
+        limit,
+        ...(search && { search }),
+        ...(tag && { tag }),
+        ...(category && { category }),
+      })
+
+      const apiUrl = `${backendUrl}/api/articles?${queryParams.toString()}`
       console.log("🔗 [FRONTEND API] API URL:", apiUrl)
 
       const response = await fetch(apiUrl, {
@@ -73,8 +86,7 @@ export async function GET(request: NextRequest) {
           Accept: "application/json",
           "Content-Type": "application/json",
         },
-        // ✅ Use Next.js 14 cache control instead of cache: 'no-store'
-        next: { revalidate: 60 }, // Cache for 60 seconds
+        cache: "no-store", // Since route is dynamic, we can use no-store
         // Add timeout to prevent hanging
         signal: AbortSignal.timeout(10000),
       })
@@ -112,7 +124,7 @@ export async function GET(request: NextRequest) {
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
 
-      // Filter mock data based on search and tag
+      // Filter mock data based on search, tag, and category
       let filteredArticles = mockArticles
 
       if (search) {
@@ -126,6 +138,12 @@ export async function GET(request: NextRequest) {
       if (tag) {
         filteredArticles = filteredArticles.filter((article) =>
           article.tags.some((t) => t.toLowerCase().includes(tag.toLowerCase())),
+        )
+      }
+
+      if (category) {
+        filteredArticles = filteredArticles.filter((article) =>
+          article.tags.some((t) => t.toLowerCase().includes(category.toLowerCase())),
         )
       }
 
