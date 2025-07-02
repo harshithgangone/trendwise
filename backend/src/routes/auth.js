@@ -1,15 +1,16 @@
 const User = require("../models/User")
+const jwt = require("jsonwebtoken")
 
 async function authRoutes(fastify, options) {
-  // Google Sign-in
+  // Google Sign-In
   fastify.post("/auth/google-signin", async (request, reply) => {
     try {
       const { email, name, picture, googleId } = request.body
 
-      if (!email || !name) {
+      if (!email || !name || !googleId) {
         return reply.status(400).send({
           success: false,
-          message: "Email and name are required",
+          error: "Missing required fields",
         })
       }
 
@@ -20,109 +21,121 @@ async function authRoutes(fastify, options) {
         user = new User({
           email,
           name,
-          picture,
+          avatar: picture || "",
           googleId,
-          provider: "google",
-          createdAt: new Date(),
+          lastLogin: new Date(),
         })
         await user.save()
-        fastify.log.info(`New user created: ${email}`)
       } else {
-        // Update user info
-        user.name = name
-        user.picture = picture
+        // Update existing user
         user.lastLogin = new Date()
+        if (picture) user.avatar = picture
+        if (!user.googleId) user.googleId = googleId
         await user.save()
-        fastify.log.info(`User updated: ${email}`)
       }
+
+      // Generate JWT token
+      const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET || "fallback-secret", {
+        expiresIn: "7d",
+      })
 
       reply.send({
         success: true,
-        data: {
-          user: {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            picture: user.picture,
-          },
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
         },
-        message: "Sign-in successful",
+        token,
       })
     } catch (error) {
       fastify.log.error("Error in Google sign-in:", error)
-
-      // Mock successful sign-in for development
-      reply.send({
-        success: true,
-        data: {
-          user: {
-            id: "mock-user-id",
-            email: request.body.email || "user@example.com",
-            name: request.body.name || "Mock User",
-            picture: request.body.picture || "/placeholder.svg?height=40&width=40",
-          },
-        },
-        message: "Sign-in successful (mock)",
-        fallback: true,
+      reply.status(500).send({
+        success: false,
+        error: "Authentication failed",
       })
     }
   })
 
   // Get user profile
-  fastify.get("/auth/profile/:userId", async (request, reply) => {
+  fastify.get("/auth/profile", async (request, reply) => {
     try {
-      const { userId } = request.params
-      const user = await User.findById(userId).select("-googleId").lean()
+      const token = request.headers.authorization?.replace("Bearer ", "")
+
+      if (!token) {
+        return reply.status(401).send({
+          success: false,
+          error: "No token provided",
+        })
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback-secret")
+      const user = await User.findById(decoded.userId).select("-password")
 
       if (!user) {
         return reply.status(404).send({
           success: false,
-          message: "User not found",
+          error: "User not found",
         })
       }
 
       reply.send({
         success: true,
-        data: { user },
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
+          preferences: user.preferences,
+        },
       })
     } catch (error) {
-      fastify.log.error("Error fetching user profile:", error)
-      reply.status(500).send({
+      fastify.log.error("Error fetching profile:", error)
+      reply.status(401).send({
         success: false,
-        message: "Error fetching user profile",
+        error: "Invalid token",
       })
     }
   })
 
-  // Update user profile
-  fastify.put("/auth/profile/:userId", async (request, reply) => {
+  // Update user preferences
+  fastify.put("/auth/preferences", async (request, reply) => {
     try {
-      const { userId } = request.params
-      const { name, bio, preferences } = request.body
+      const token = request.headers.authorization?.replace("Bearer ", "")
 
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { name, bio, preferences, updatedAt: new Date() },
-        { new: true },
-      ).select("-googleId")
-
-      if (!user) {
-        return reply.status(404).send({
+      if (!token) {
+        return reply.status(401).send({
           success: false,
-          message: "User not found",
+          error: "No token provided",
         })
       }
 
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback-secret")
+      const { preferences } = request.body
+
+      const user = await User.findByIdAndUpdate(decoded.userId, { $set: { preferences } }, { new: true }).select(
+        "-password",
+      )
+
       reply.send({
         success: true,
-        data: { user },
-        message: "Profile updated successfully",
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          avatar: user.avatar,
+          role: user.role,
+          preferences: user.preferences,
+        },
       })
     } catch (error) {
-      fastify.log.error("Error updating user profile:", error)
+      fastify.log.error("Error updating preferences:", error)
       reply.status(500).send({
         success: false,
-        message: "Error updating user profile",
+        error: "Failed to update preferences",
       })
     }
   })

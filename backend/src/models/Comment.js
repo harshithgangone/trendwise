@@ -1,58 +1,59 @@
 const mongoose = require("mongoose")
 
-const commentSchema = new mongoose.Schema({
-  content: {
-    type: String,
-    required: true,
-    trim: true,
-    maxlength: 1000,
+const commentSchema = new mongoose.Schema(
+  {
+    article: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Article",
+      required: true,
+    },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    content: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    parentComment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Comment",
+      default: null,
+    },
+    likes: {
+      type: Number,
+      default: 0,
+    },
+    likedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+    editedAt: {
+      type: Date,
+    },
+    status: {
+      type: String,
+      enum: ["active", "hidden", "deleted"],
+      default: "active",
+    },
   },
-  articleId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Article",
-    required: true,
+  {
+    timestamps: true,
   },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
-  },
-  parentId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Comment",
-    default: null,
-  },
-  likes: {
-    type: Number,
-    default: 0,
-  },
-  isEdited: {
-    type: Boolean,
-    default: false,
-  },
-  isDeleted: {
-    type: Boolean,
-    default: false,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now,
-  },
-})
+)
 
-// Update updatedAt before saving
-commentSchema.pre("save", function (next) {
-  this.updatedAt = Date.now()
-  next()
-})
-
-// Index for better query performance
-commentSchema.index({ articleId: 1, createdAt: -1 })
-commentSchema.index({ userId: 1 })
-commentSchema.index({ parentId: 1 })
+// Create indexes
+commentSchema.index({ article: 1 })
+commentSchema.index({ user: 1 })
+commentSchema.index({ parentComment: 1 })
+commentSchema.index({ createdAt: -1 })
 
 module.exports = mongoose.model("Comment", commentSchema)

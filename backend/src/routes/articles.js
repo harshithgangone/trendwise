@@ -1,19 +1,27 @@
 const Article = require("../models/Article")
-const groqService = require("../services/groqService")
 
 async function articlesRoutes(fastify, options) {
   // Get all articles with pagination
   fastify.get("/articles", async (request, reply) => {
     try {
-      const { page = 1, limit = 10, category, search } = request.query
+      const { page = 1, limit = 10, category, search, tag } = request.query
       const skip = (page - 1) * limit
 
-      const query = {}
-      if (category) query.category = category
+      const query = { status: "published" }
+
+      if (category) {
+        query.category = new RegExp(category, "i")
+      }
+
+      if (tag) {
+        query.tags = { $in: [new RegExp(tag, "i")] }
+      }
+
       if (search) {
         query.$or = [
           { title: { $regex: search, $options: "i" } },
           { excerpt: { $regex: search, $options: "i" } },
+          { content: { $regex: search, $options: "i" } },
           { tags: { $in: [new RegExp(search, "i")] } },
         ]
       }
@@ -24,12 +32,13 @@ async function articlesRoutes(fastify, options) {
 
       reply.send({
         success: true,
-        data: articles,
+        articles,
         pagination: {
           page: Number.parseInt(page),
           limit: Number.parseInt(limit),
           total,
           pages: Math.ceil(total / limit),
+          hasNext: skip + articles.length < total,
         },
       })
     } catch (error) {
@@ -40,6 +49,7 @@ async function articlesRoutes(fastify, options) {
         {
           _id: "mock1",
           title: "AI Revolution in 2024: What You Need to Know",
+          slug: "ai-revolution-2024-what-you-need-to-know",
           excerpt: "Artificial Intelligence continues to transform industries worldwide with breakthrough innovations.",
           content: "# AI Revolution in 2024\n\nArtificial Intelligence is reshaping our world...",
           category: "Technology",
@@ -51,10 +61,13 @@ async function articlesRoutes(fastify, options) {
           likes: 89,
           saves: 34,
           readTime: 5,
+          featured: true,
+          status: "published",
         },
         {
           _id: "mock2",
           title: "Sustainable Energy Solutions Gaining Momentum",
+          slug: "sustainable-energy-solutions-gaining-momentum",
           excerpt: "Renewable energy technologies are becoming more efficient and cost-effective than ever before.",
           content: "# Sustainable Energy Solutions\n\nThe future of energy is green...",
           category: "Environment",
@@ -66,10 +79,13 @@ async function articlesRoutes(fastify, options) {
           likes: 67,
           saves: 23,
           readTime: 4,
+          featured: false,
+          status: "published",
         },
         {
           _id: "mock3",
           title: "Remote Work Trends Shaping the Future",
+          slug: "remote-work-trends-shaping-the-future",
           excerpt: "How remote work is transforming business operations and employee satisfaction globally.",
           content: "# Remote Work Trends\n\nThe workplace has evolved dramatically...",
           category: "Business",
@@ -81,31 +97,33 @@ async function articlesRoutes(fastify, options) {
           likes: 112,
           saves: 45,
           readTime: 6,
+          featured: false,
+          status: "published",
         },
       ]
 
       reply.send({
         success: true,
-        data: mockArticles,
+        articles: mockArticles,
         pagination: {
           page: 1,
           limit: 10,
           total: 3,
           pages: 1,
+          hasNext: false,
         },
-        fallback: true,
       })
     }
   })
 
   // Get trending articles
-  fastify.get("/articles/trending", async (request, reply) => {
+  fastify.get("/articles/trending/top", async (request, reply) => {
     try {
-      const articles = await Article.find({ featured: true }).sort({ views: -1, createdAt: -1 }).limit(10).lean()
+      const articles = await Article.find({ status: "published" }).sort({ views: -1, createdAt: -1 }).limit(10).lean()
 
       reply.send({
         success: true,
-        data: articles,
+        articles,
       })
     } catch (error) {
       fastify.log.error("Error fetching trending articles:", error)
@@ -115,6 +133,7 @@ async function articlesRoutes(fastify, options) {
         {
           _id: "trending1",
           title: "Breaking: Major Tech Breakthrough Announced",
+          slug: "breaking-major-tech-breakthrough-announced",
           excerpt: "Industry leaders reveal game-changing innovation that could reshape technology.",
           category: "Technology",
           tags: ["Breaking", "Technology", "Innovation"],
@@ -126,10 +145,16 @@ async function articlesRoutes(fastify, options) {
           saves: 89,
           readTime: 7,
           featured: true,
+          trendData: {
+            trendScore: 95,
+            searchVolume: "High",
+            source: "Google Trends",
+          },
         },
         {
           _id: "trending2",
           title: "Global Climate Initiative Shows Promising Results",
+          slug: "global-climate-initiative-shows-promising-results",
           excerpt: "New environmental policies are making a significant impact on carbon reduction.",
           category: "Environment",
           tags: ["Climate", "Environment", "Policy"],
@@ -141,49 +166,51 @@ async function articlesRoutes(fastify, options) {
           saves: 67,
           readTime: 5,
           featured: true,
+          trendData: {
+            trendScore: 88,
+            searchVolume: "High",
+            source: "News Analysis",
+          },
         },
       ]
 
       reply.send({
         success: true,
-        data: mockTrending,
-        fallback: true,
+        articles: mockTrending,
       })
     }
   })
 
-  // Get article categories
-  fastify.get("/articles/categories", async (request, reply) => {
+  // Get article categories with counts
+  fastify.get("/articles/meta/categories", async (request, reply) => {
     try {
-      const categories = await Article.distinct("category")
-      const categoriesWithCounts = await Promise.all(
-        categories.map(async (category) => {
-          const count = await Article.countDocuments({ category })
-          return { name: category, count }
-        }),
-      )
+      const categories = await Article.aggregate([
+        { $match: { status: "published" } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+        { $project: { name: "$_id", count: 1, slug: { $toLower: "$_id" }, _id: 0 } },
+        { $sort: { name: 1 } },
+      ])
 
       reply.send({
         success: true,
-        data: categoriesWithCounts,
+        categories,
       })
     } catch (error) {
       fastify.log.error("Error fetching categories:", error)
 
       // Mock categories
       const mockCategories = [
-        { name: "Technology", count: 45 },
-        { name: "Business", count: 32 },
-        { name: "Science", count: 28 },
-        { name: "Environment", count: 23 },
-        { name: "Healthcare", count: 19 },
-        { name: "Education", count: 15 },
+        { name: "Technology", count: 45, slug: "technology" },
+        { name: "Business", count: 32, slug: "business" },
+        { name: "Science", count: 28, slug: "science" },
+        { name: "Environment", count: 23, slug: "environment" },
+        { name: "Healthcare", count: 19, slug: "healthcare" },
+        { name: "Education", count: 15, slug: "education" },
       ]
 
       reply.send({
         success: true,
-        data: mockCategories,
-        fallback: true,
+        categories: mockCategories,
       })
     }
   })
@@ -195,22 +222,24 @@ async function articlesRoutes(fastify, options) {
       const { page = 1, limit = 10 } = request.query
       const skip = (page - 1) * limit
 
-      const articles = await Article.find({ category })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number.parseInt(limit))
-        .lean()
+      const query = {
+        category: new RegExp(category, "i"),
+        status: "published",
+      }
 
-      const total = await Article.countDocuments({ category })
+      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number.parseInt(limit)).lean()
+
+      const total = await Article.countDocuments(query)
 
       reply.send({
         success: true,
-        data: articles,
+        articles,
         pagination: {
           page: Number.parseInt(page),
           limit: Number.parseInt(limit),
           total,
           pages: Math.ceil(total / limit),
+          hasNext: skip + articles.length < total,
         },
       })
     } catch (error) {
@@ -221,6 +250,7 @@ async function articlesRoutes(fastify, options) {
         {
           _id: "cat1",
           title: `Latest in ${request.params.category}`,
+          slug: `latest-in-${request.params.category.toLowerCase()}`,
           excerpt: `Discover the newest developments in ${request.params.category}.`,
           category: request.params.category,
           tags: [request.params.category, "Latest", "News"],
@@ -231,14 +261,20 @@ async function articlesRoutes(fastify, options) {
           likes: 34,
           saves: 12,
           readTime: 4,
+          status: "published",
         },
       ]
 
       reply.send({
         success: true,
-        data: mockArticles,
-        pagination: { page: 1, limit: 10, total: 1, pages: 1 },
-        fallback: true,
+        articles: mockArticles,
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 1,
+          pages: 1,
+          hasNext: false,
+        },
       })
     }
   })
@@ -247,27 +283,65 @@ async function articlesRoutes(fastify, options) {
   fastify.get("/articles/:slug", async (request, reply) => {
     try {
       const { slug } = request.params
-      const article = await Article.findOne({ slug }).lean()
+      const article = await Article.findOneAndUpdate(
+        { slug, status: "published" },
+        { $inc: { views: 1 } },
+        { new: true },
+      ).lean()
 
       if (!article) {
         return reply.status(404).send({
           success: false,
-          message: "Article not found",
+          error: "Article not found",
         })
       }
 
-      // Increment view count
-      await Article.findByIdAndUpdate(article._id, { $inc: { views: 1 } })
-
-      reply.send({
-        success: true,
-        data: { ...article, views: article.views + 1 },
-      })
+      reply.send(article)
     } catch (error) {
       fastify.log.error("Error fetching article:", error)
+
+      // Mock article for fallback
+      const mockArticle = {
+        _id: "mock-article",
+        title: "Sample Article",
+        slug: request.params.slug,
+        excerpt: "This is a sample article for demonstration purposes.",
+        content: "# Sample Article\n\nThis is sample content.",
+        category: "Technology",
+        tags: ["Sample", "Demo"],
+        author: "TrendBot AI",
+        thumbnail: "/placeholder.svg?height=400&width=600",
+        createdAt: new Date(),
+        views: 100,
+        likes: 10,
+        saves: 5,
+        readTime: 3,
+        status: "published",
+      }
+
+      reply.send(mockArticle)
+    }
+  })
+
+  // Get article by ID
+  fastify.get("/articles/by-id/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      const article = await Article.findByIdAndUpdate(id, { $inc: { views: 1 } }, { new: true }).lean()
+
+      if (!article) {
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      reply.send(article)
+    } catch (error) {
+      fastify.log.error("Error fetching article by ID:", error)
       reply.status(500).send({
         success: false,
-        message: "Error fetching article",
+        error: "Error fetching article",
       })
     }
   })
@@ -281,19 +355,19 @@ async function articlesRoutes(fastify, options) {
       if (!article) {
         return reply.status(404).send({
           success: false,
-          message: "Article not found",
+          error: "Article not found",
         })
       }
 
       reply.send({
         success: true,
-        data: { likes: article.likes },
+        likes: article.likes,
       })
     } catch (error) {
       fastify.log.error("Error liking article:", error)
       reply.status(500).send({
         success: false,
-        message: "Error liking article",
+        error: "Error liking article",
       })
     }
   })
@@ -307,19 +381,19 @@ async function articlesRoutes(fastify, options) {
       if (!article) {
         return reply.status(404).send({
           success: false,
-          message: "Article not found",
+          error: "Article not found",
         })
       }
 
       reply.send({
         success: true,
-        data: { saves: article.saves },
+        saves: article.saves,
       })
     } catch (error) {
       fastify.log.error("Error saving article:", error)
       reply.status(500).send({
         success: false,
-        message: "Error saving article",
+        error: "Error saving article",
       })
     }
   })

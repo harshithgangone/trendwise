@@ -1,4 +1,5 @@
 const fastify = require("fastify")
+const mongoose = require("mongoose")
 
 // Determine if in production environment
 const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true"
@@ -6,7 +7,7 @@ const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER
 // Initialize Fastify with conditional logger
 const app = fastify({
   logger: isProduction
-    ? { level: "info" } // Simple logger for production
+    ? { level: "info" }
     : {
         transport: {
           target: "pino-pretty",
@@ -34,7 +35,6 @@ app.register(require("@fastify/cors"), {
 // Connect to MongoDB
 const connectDB = async () => {
   try {
-    const mongoose = require("mongoose")
     await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise")
     app.log.info("✅ [DATABASE] MongoDB Connected")
     return true
@@ -85,11 +85,10 @@ const start = async () => {
     app.log.info(`🚀 Server running on ${host}:${port}`)
 
     // Start TrendBot
-    const trendBot = require("./services/trendBot")
-    if (trendBot && trendBot.start) {
-      trendBot.start()
-      app.log.info("✅ TrendBot started")
-    }
+    const TrendBot = require("./services/trendBot")
+    const trendBot = new TrendBot()
+    trendBot.start()
+    app.log.info("✅ TrendBot started")
   } catch (err) {
     app.log.error("❌ Error starting server:", err)
     process.exit(1)

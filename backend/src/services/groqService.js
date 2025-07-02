@@ -111,6 +111,7 @@ Format the response as a JSON object with these fields:
 
       return {
         title: articleData.title,
+        slug: this.generateSlug(articleData.title),
         excerpt: articleData.excerpt,
         content: articleData.content,
         tags: articleData.tags || [topic, category],
@@ -128,6 +129,16 @@ Format the response as a JSON object with these fields:
       console.error("❌ [GROQ] Error generating article:", error.message)
       return this.generateFallbackArticle(topic, category)
     }
+  }
+
+  generateSlug(title) {
+    return title
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim()
+      .substring(0, 100)
   }
 
   generateFallbackArticle(topic, category) {
@@ -173,6 +184,7 @@ ${topic} represents a significant shift in the ${category.toLowerCase()} sector,
 
     return {
       title: `${topic}: Transforming ${category} in 2024`,
+      slug: this.generateSlug(`${topic}: Transforming ${category} in 2024`),
       excerpt: `Explore how ${topic} is revolutionizing the ${category.toLowerCase()} sector with innovative solutions and breakthrough technologies.`,
       content: fallbackContent,
       tags: [topic, category, "Innovation", "Technology"],

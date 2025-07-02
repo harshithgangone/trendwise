@@ -4,184 +4,112 @@ async function trendsRoutes(fastify, options) {
   // Get trending topics
   fastify.get("/trends/topics", async (request, reply) => {
     try {
-      const trendingTopics = await Article.aggregate([
-        { $unwind: "$tags" },
-        { $group: { _id: "$tags", count: { $sum: 1 }, totalViews: { $sum: "$views" } } },
-        { $sort: { totalViews: -1, count: -1 } },
-        { $limit: 20 },
-        { $project: { topic: "$_id", count: 1, totalViews: 1, _id: 0 } },
-      ])
+      const { limit = 10 } = request.query
+
+      // Get trending articles based on views and recent activity
+      const trendingArticles = await Article.find({ status: "published" })
+        .sort({ views: -1, createdAt: -1 })
+        .limit(Number.parseInt(limit))
+        .select("title tags category views createdAt")
+        .lean()
+
+      // Extract trending topics from articles
+      const topicCounts = {}
+      trendingArticles.forEach((article) => {
+        article.tags.forEach((tag) => {
+          topicCounts[tag] = (topicCounts[tag] || 0) + article.views
+        })
+      })
+
+      // Sort topics by total views
+      const trendingTopics = Object.entries(topicCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, Number.parseInt(limit))
+        .map(([topic, views]) => ({
+          topic,
+          views,
+          articles: trendingArticles.filter((article) => article.tags.includes(topic)).length,
+        }))
 
       reply.send({
         success: true,
-        data: trendingTopics,
+        topics: trendingTopics,
+        timestamp: new Date().toISOString(),
       })
     } catch (error) {
       fastify.log.error("Error fetching trending topics:", error)
 
       // Mock trending topics
       const mockTopics = [
-        { topic: "AI", count: 25, totalViews: 15420 },
-        { topic: "Climate Change", count: 18, totalViews: 12350 },
-        { topic: "Technology", count: 32, totalViews: 11890 },
-        { topic: "Innovation", count: 22, totalViews: 9876 },
-        { topic: "Sustainability", count: 15, totalViews: 8765 },
-        { topic: "Remote Work", count: 19, totalViews: 7654 },
-        { topic: "Healthcare", count: 14, totalViews: 6543 },
-        { topic: "Education", count: 12, totalViews: 5432 },
+        { topic: "AI", views: 15420, articles: 12 },
+        { topic: "Technology", views: 12890, articles: 18 },
+        { topic: "Climate", views: 9876, articles: 8 },
+        { topic: "Business", views: 8765, articles: 15 },
+        { topic: "Innovation", views: 7654, articles: 10 },
+        { topic: "Health", views: 6543, articles: 7 },
+        { topic: "Science", views: 5432, articles: 9 },
+        { topic: "Environment", views: 4321, articles: 6 },
       ]
+
+      const limit = request.query.limit || 10 // Declare the limit variable
 
       reply.send({
         success: true,
-        data: mockTopics,
-        fallback: true,
+        topics: mockTopics.slice(0, Number.parseInt(limit)),
+        timestamp: new Date().toISOString(),
       })
     }
   })
 
-  // Get trending articles by time period
-  fastify.get("/trends/articles", async (request, reply) => {
+  // Get trending articles by topic
+  fastify.get("/trends/articles/:topic", async (request, reply) => {
     try {
-      const { period = "week" } = request.query
-      const dateFilter = new Date()
+      const { topic } = request.params
+      const { limit = 10 } = request.query
 
-      switch (period) {
-        case "day":
-          dateFilter.setDate(dateFilter.getDate() - 1)
-          break
-        case "week":
-          dateFilter.setDate(dateFilter.getDate() - 7)
-          break
-        case "month":
-          dateFilter.setMonth(dateFilter.getMonth() - 1)
-          break
-        default:
-          dateFilter.setDate(dateFilter.getDate() - 7)
-      }
-
-      const trendingArticles = await Article.find({
-        createdAt: { $gte: dateFilter },
+      const articles = await Article.find({
+        status: "published",
+        tags: { $in: [new RegExp(topic, "i")] },
       })
-        .sort({ views: -1, likes: -1 })
-        .limit(10)
+        .sort({ views: -1, createdAt: -1 })
+        .limit(Number.parseInt(limit))
         .lean()
 
       reply.send({
         success: true,
-        data: trendingArticles,
+        topic,
+        articles,
+        count: articles.length,
       })
     } catch (error) {
-      fastify.log.error("Error fetching trending articles:", error)
+      fastify.log.error("Error fetching trending articles by topic:", error)
 
-      // Mock trending articles
-      const mockTrendingArticles = [
+      // Mock articles for topic
+      const mockArticles = [
         {
           _id: "trend1",
-          title: "Revolutionary AI Breakthrough Changes Everything",
-          excerpt: "Scientists announce major AI advancement with far-reaching implications.",
+          title: `Latest ${request.params.topic} Developments`,
+          slug: `latest-${request.params.topic.toLowerCase()}-developments`,
+          excerpt: `Discover the newest trends and developments in ${request.params.topic}.`,
           category: "Technology",
-          tags: ["AI", "Breakthrough", "Technology"],
+          tags: [request.params.topic, "Trending", "Latest"],
           author: "TrendBot AI",
           thumbnail: "/placeholder.svg?height=400&width=600",
           createdAt: new Date(),
-          views: 8945,
-          likes: 456,
-          saves: 123,
-          readTime: 8,
-        },
-        {
-          _id: "trend2",
-          title: "Climate Solutions Show Unprecedented Success",
-          excerpt: "New environmental initiatives demonstrate remarkable progress in carbon reduction.",
-          category: "Environment",
-          tags: ["Climate", "Environment", "Solutions"],
-          author: "TrendBot AI",
-          thumbnail: "/placeholder.svg?height=400&width=600",
-          createdAt: new Date(),
-          views: 7234,
-          likes: 389,
-          saves: 98,
-          readTime: 6,
+          views: 1234,
+          likes: 89,
+          saves: 45,
+          readTime: 5,
         },
       ]
 
-      reply.send({
-        success: true,
-        data: mockTrendingArticles,
-        fallback: true,
-      })
-    }
-  })
-
-  // Get category trends
-  fastify.get("/trends/categories", async (request, reply) => {
-    try {
-      const categoryTrends = await Article.aggregate([
-        {
-          $group: {
-            _id: "$category",
-            count: { $sum: 1 },
-            totalViews: { $sum: "$views" },
-            totalLikes: { $sum: "$likes" },
-            avgReadTime: { $avg: "$readTime" },
-          },
-        },
-        { $sort: { totalViews: -1 } },
-        {
-          $project: {
-            category: "$_id",
-            count: 1,
-            totalViews: 1,
-            totalLikes: 1,
-            avgReadTime: { $round: ["$avgReadTime", 1] },
-            _id: 0,
-          },
-        },
-      ])
+      const limit = request.query.limit || 10 // Declare the limit variable
 
       reply.send({
         success: true,
-        data: categoryTrends,
-      })
-    } catch (error) {
-      fastify.log.error("Error fetching category trends:", error)
-
-      // Mock category trends
-      const mockCategoryTrends = [
-        {
-          category: "Technology",
-          count: 45,
-          totalViews: 125430,
-          totalLikes: 5678,
-          avgReadTime: 6.2,
-        },
-        {
-          category: "Business",
-          count: 32,
-          totalViews: 89012,
-          totalLikes: 4321,
-          avgReadTime: 5.8,
-        },
-        {
-          category: "Science",
-          count: 28,
-          totalViews: 76543,
-          totalLikes: 3456,
-          avgReadTime: 7.1,
-        },
-        {
-          category: "Environment",
-          count: 23,
-          totalViews: 65432,
-          totalLikes: 2987,
-          avgReadTime: 5.5,
-        },
-      ]
-
-      reply.send({
-        success: true,
-        data: mockCategoryTrends,
-        fallback: true,
+        topic: request.params.topic,
+        articles: mockArticles,
+        count: 1,
       })
     }
   })

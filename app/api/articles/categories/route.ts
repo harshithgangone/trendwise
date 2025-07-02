@@ -2,16 +2,6 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
-// Mock categories data
-const mockCategories = [
-  { name: "Technology", count: 15, slug: "technology" },
-  { name: "Business", count: 12, slug: "business" },
-  { name: "Health", count: 8, slug: "health" },
-  { name: "Science", count: 10, slug: "science" },
-  { name: "Environment", count: 6, slug: "environment" },
-  { name: "Entertainment", count: 5, slug: "entertainment" },
-]
-
 export async function GET(request: NextRequest) {
   try {
     console.log("📂 [FRONTEND API] Categories API called")
@@ -40,17 +30,11 @@ export async function GET(request: NextRequest) {
         const data = await response.json()
         console.log(`✅ [FRONTEND API] Successfully fetched ${data.categories?.length || 0} categories from backend`)
 
-        if (data.success && data.categories && Array.isArray(data.categories)) {
-          return NextResponse.json({
-            success: true,
-            categories: data.categories,
-          })
-        } else {
-          throw new Error("Invalid categories response format from backend")
-        }
+        return NextResponse.json({
+          success: true,
+          categories: data.categories || [],
+        })
       } else {
-        const errorText = await response.text()
-        console.log(`⚠️ [FRONTEND API] Backend categories error response: ${errorText}`)
         throw new Error(`Backend responded with status: ${response.status}`)
       }
     } catch (backendError) {
@@ -58,6 +42,15 @@ export async function GET(request: NextRequest) {
         "⚠️ [FRONTEND API] Backend categories not available, using mock data:",
         backendError instanceof Error ? backendError.message : "Unknown error",
       )
+
+      const mockCategories = [
+        { name: "Technology", count: 15, slug: "technology" },
+        { name: "Business", count: 12, slug: "business" },
+        { name: "Health", count: 8, slug: "health" },
+        { name: "Science", count: 10, slug: "science" },
+        { name: "Environment", count: 6, slug: "environment" },
+        { name: "Entertainment", count: 5, slug: "entertainment" },
+      ]
 
       console.log(`📊 [FRONTEND API] Returning ${mockCategories.length} mock categories`)
 
@@ -73,7 +66,7 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: "Failed to fetch categories",
-        categories: mockCategories,
+        categories: [],
       },
       { status: 500 },
     )

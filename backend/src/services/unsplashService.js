@@ -4,9 +4,10 @@ const fetch = require("node-fetch")
 class UnsplashService {
   constructor() {
     this.accessKey = process.env.UNSPLASH_ACCESS_KEY
-    this.baseUrl = "https://api.unsplash.com"
+    this.baseURL = "https://api.unsplash.com"
     this.requestTimeout = 10000
     this.maxRetries = 2
+    console.log("📸 [UNSPLASH] Service initialized")
   }
 
   async searchImages(query, count = 3) {
@@ -22,7 +23,7 @@ class UnsplashService {
     try {
       console.log("📡 [UNSPLASH SERVICE] Making API request...")
 
-      const response = await axios.get(`${this.baseUrl}/search/photos`, {
+      const response = await axios.get(`${this.baseURL}/search/photos`, {
         params: {
           query: query,
           per_page: count,
@@ -82,89 +83,47 @@ class UnsplashService {
     }
   }
 
-  async searchPhotos(query, perPage = 10) {
+  async searchPhotos(query, count = 1) {
     if (!this.accessKey) {
-      console.warn("⚠️ [UNSPLASH] Access key not found, returning placeholder images")
-      return this.getPlaceholderImages(query, perPage)
+      console.warn("⚠️ [UNSPLASH] Access key not found, returning placeholder")
+      return this.getPlaceholderImages(query, count)
     }
 
     try {
-      const response = await axios.get(`${this.baseUrl}/search/photos`, {
+      console.log(`🔍 [UNSPLASH] Searching for "${query}" images...`)
+
+      const response = await axios.get(`${this.baseURL}/search/photos`, {
         params: {
           query,
-          per_page: perPage,
+          per_page: count,
           orientation: "landscape",
         },
         headers: {
           Authorization: `Client-ID ${this.accessKey}`,
         },
+        timeout: this.requestTimeout,
       })
 
-      return response.data.results.map((photo) => ({
-        id: photo.id,
-        url: photo.urls.regular,
-        thumbnail: photo.urls.thumb,
-        description: photo.description || photo.alt_description,
-        author: photo.user.name,
-        authorUrl: photo.user.links.html,
-      }))
+      if (response.data && response.data.results) {
+        const images = response.data.results.map((photo) => ({
+          id: photo.id,
+          url: photo.urls.regular,
+          thumbnail: photo.urls.small,
+          alt: photo.alt_description || query,
+          author: photo.user.name,
+          authorUrl: photo.user.links.html,
+          downloadUrl: photo.links.download_location,
+        }))
+
+        console.log(`✅ [UNSPLASH] Found ${images.length} images`)
+        return images
+      }
+
+      throw new Error("Invalid response from Unsplash API")
     } catch (error) {
       console.error("❌ [UNSPLASH] Error searching photos:", error.message)
-      return this.getPlaceholderImages(query, perPage)
+      return this.getPlaceholderImages(query, count)
     }
-  }
-
-  generatePlaceholderImages(query, count = 3) {
-    console.log(`🎭 [UNSPLASH SERVICE] Generating ${count} placeholder images for "${query}"`)
-
-    const images = []
-    const dimensions = [
-      { width: 800, height: 600 },
-      { width: 1200, height: 800 },
-      { width: 1000, height: 667 },
-    ]
-
-    for (let i = 0; i < count; i++) {
-      const dim = dimensions[i % dimensions.length]
-      const encodedQuery = encodeURIComponent(query)
-
-      images.push({
-        id: `placeholder-${i + 1}-${Date.now()}`,
-        url: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
-        thumbnail: `/placeholder.svg?height=300&width=400&text=${encodedQuery}`,
-        alt: `${query} - Image ${i + 1}`,
-        width: dim.width,
-        height: dim.height,
-        photographer: {
-          name: "TrendWise",
-          username: "trendwise",
-          profile: "https://trendwise.com",
-        },
-        downloadUrl: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
-        unsplashUrl: "https://unsplash.com",
-        color: "#6366f1",
-        likes: Math.floor(Math.random() * 100) + 10,
-        isPlaceholder: true,
-      })
-    }
-
-    console.log(`✅ [UNSPLASH SERVICE] Generated ${images.length} placeholder images`)
-    return images
-  }
-
-  getPlaceholderImages(query, count) {
-    const images = []
-    for (let i = 0; i < count; i++) {
-      images.push({
-        id: `placeholder-${i}`,
-        url: `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(query)}`,
-        thumbnail: `/placeholder.svg?height=200&width=300&text=${encodeURIComponent(query)}`,
-        description: `Placeholder image for ${query}`,
-        author: "Placeholder",
-        authorUrl: "#",
-      })
-    }
-    return images
   }
 
   async getRandomImages(count = 5) {
@@ -179,7 +138,7 @@ class UnsplashService {
     try {
       console.log("📡 [UNSPLASH SERVICE] Making random images API request...")
 
-      const response = await axios.get(`${this.baseUrl}/photos/random`, {
+      const response = await axios.get(`${this.baseURL}/photos/random`, {
         params: {
           count: count,
           orientation: "landscape",
@@ -250,7 +209,7 @@ class UnsplashService {
     try {
       console.log("📡 [UNSPLASH SERVICE] Testing API connection...")
 
-      const response = await axios.get(`${this.baseUrl}/photos/random`, {
+      const response = await axios.get(`${this.baseURL}/photos/random`, {
         params: { count: 1 },
         headers: {
           Authorization: `Client-ID ${this.accessKey}`,
@@ -293,11 +252,8 @@ class UnsplashService {
 
   getStatus() {
     return {
-      accessKey: !!this.accessKey,
-      baseUrl: this.baseUrl,
-      timeout: this.requestTimeout,
-      maxRetries: this.maxRetries,
       hasAccessKey: !!this.accessKey,
+      baseUrl: this.baseURL,
     }
   }
 
@@ -307,7 +263,7 @@ class UnsplashService {
       return "/placeholder.svg?height=400&width=600" // Fallback placeholder
     }
 
-    const url = `${this.baseUrl}/photos/random?query=${encodeURIComponent(query)}&client_id=${this.accessKey}`
+    const url = `${this.baseURL}/photos/random?query=${encodeURIComponent(query)}&client_id=${this.accessKey}`
 
     try {
       console.log(`🖼️ [UNSPLASH SERVICE] Fetching image for query: "${query}"`)
@@ -328,6 +284,60 @@ class UnsplashService {
       console.error("❌ [UNSPLASH SERVICE] Error fetching image:", error.message)
       return "/placeholder.svg?height=400&width=600" // Fallback placeholder on error
     }
+  }
+
+  generatePlaceholderImages(query, count = 3) {
+    console.log(`🎭 [UNSPLASH SERVICE] Generating ${count} placeholder images for "${query}"`)
+
+    const images = []
+    const dimensions = [
+      { width: 800, height: 600 },
+      { width: 1200, height: 800 },
+      { width: 1000, height: 667 },
+    ]
+
+    for (let i = 0; i < count; i++) {
+      const dim = dimensions[i % dimensions.length]
+      const encodedQuery = encodeURIComponent(query)
+
+      images.push({
+        id: `placeholder-${i + 1}-${Date.now()}`,
+        url: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
+        thumbnail: `/placeholder.svg?height=300&width=400&text=${encodedQuery}`,
+        alt: `${query} - Image ${i + 1}`,
+        width: dim.width,
+        height: dim.height,
+        photographer: {
+          name: "TrendWise",
+          username: "trendwise",
+          profile: "https://trendwise.com",
+        },
+        downloadUrl: `/placeholder.svg?height=${dim.height}&width=${dim.width}&text=${encodedQuery}`,
+        unsplashUrl: "https://unsplash.com",
+        color: "#6366f1",
+        likes: Math.floor(Math.random() * 100) + 10,
+        isPlaceholder: true,
+      })
+    }
+
+    console.log(`✅ [UNSPLASH SERVICE] Generated ${images.length} placeholder images`)
+    return images
+  }
+
+  getPlaceholderImages(query, count = 1) {
+    const images = []
+    for (let i = 0; i < count; i++) {
+      images.push({
+        id: `placeholder-${i}`,
+        url: `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(query)}`,
+        thumbnail: `/placeholder.svg?height=200&width=300&text=${encodeURIComponent(query)}`,
+        alt: query,
+        author: "Placeholder",
+        authorUrl: "#",
+        downloadUrl: "#",
+      })
+    }
+    return images
   }
 }
 

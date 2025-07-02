@@ -1,178 +1,172 @@
-const cron = require("node-cron")
 const Article = require("../models/Article")
 const groqService = require("./groqService")
 const gnewsService = require("./gnewsService")
 
 class TrendBot {
-  constructor(fastify) {
-    this.fastify = fastify
-    this.isActive = false
-    this.interval = null
-    this.lastRun = null
-    this.nextRun = null
-    this.articlesGenerated = 0
-    this.errors = []
-  }
-
-  init() {
-    // Start the bot immediately on initialization
-    this.start()
-    this.fastify.log.info("🤖 [TRENDBOT] Initializing TrendBot. Starting immediate content generation.")
+  constructor() {
+    this.isRunning = false
+    this.intervalId = null
+    this.lastGenerationTime = null
+    this.generationInterval = 30 * 60 * 1000 // 30 minutes
+    this.topics = [
+      "Artificial Intelligence",
+      "Machine Learning",
+      "Climate Change",
+      "Renewable Energy",
+      "Cryptocurrency",
+      "Blockchain Technology",
+      "Remote Work",
+      "Digital Transformation",
+      "Cybersecurity",
+      "Space Technology",
+      "Electric Vehicles",
+      "Quantum Computing",
+      "Biotechnology",
+      "5G Technology",
+      "Internet of Things",
+    ]
+    this.categories = ["Technology", "Business", "Science", "Environment", "Health"]
   }
 
   start() {
-    if (this.isActive) {
-      this.fastify.log.info("🤖 [TRENDBOT] Already running")
+    if (this.isRunning) {
+      console.log("🤖 [TRENDBOT] Already running")
       return
     }
 
-    this.isActive = true
-    this.fastify.log.info("🤖 [TRENDBOT] Starting...")
+    console.log("🚀 [TRENDBOT] Starting TrendBot...")
+    this.isRunning = true
 
-    // Generate articles immediately
-    this.generateArticles()
+    // Generate initial articles
+    this.generateArticles(3)
 
-    // Set up interval to run every 30 minutes
-    this.interval = setInterval(
-      () => {
-        this.generateArticles()
-      },
-      30 * 60 * 1000,
-    ) // 30 minutes
+    // Set up interval for regular generation
+    this.intervalId = setInterval(() => {
+      this.generateArticles(2)
+    }, this.generationInterval)
 
-    this.updateNextRun()
-    this.fastify.log.info("✅ [TRENDBOT] Started successfully")
+    console.log(`✅ [TRENDBOT] Started with ${this.generationInterval / 60000} minute intervals`)
   }
 
   stop() {
-    if (!this.isActive) {
-      this.fastify.log.info("🤖 [TRENDBOT] Already stopped")
+    if (!this.isRunning) {
+      console.log("🤖 [TRENDBOT] Already stopped")
       return
     }
 
-    this.isActive = false
-    if (this.interval) {
-      clearInterval(this.interval)
-      this.interval = null
+    console.log("🛑 [TRENDBOT] Stopping TrendBot...")
+    this.isRunning = false
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId)
+      this.intervalId = null
     }
-    this.nextRun = null
-    this.fastify.log.info("🛑 [TRENDBOT] Stopped")
+
+    console.log("✅ [TRENDBOT] Stopped")
   }
 
-  async generateArticles() {
+  async generateArticles(count = 1) {
+    if (!this.isRunning) {
+      console.log("⚠️ [TRENDBOT] Not running, skipping generation")
+      return
+    }
+
+    console.log(`🎯 [TRENDBOT] Generating ${count} articles...`)
+
     try {
-      this.fastify.log.info("🤖 [TRENDBOT] Starting article generation...")
-      this.lastRun = new Date()
-
-      // Get trending topics
-      const topics = await this.getTrendingTopics()
-      this.fastify.log.info(`🤖 [TRENDBOT] Found ${topics.length} trending topics`)
-
-      // Generate articles for each topic
-      const generatedArticles = []
-      for (const topic of topics.slice(0, 5)) {
-        // Limit to 5 articles per run
-        try {
-          const article = await groqService.generateArticle(topic.name, topic.category)
-          const savedArticle = await this.saveArticle(article)
-          generatedArticles.push(savedArticle)
-          this.articlesGenerated++
-
-          // Add delay between generations
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-        } catch (error) {
-          this.fastify.log.error(`❌ [TRENDBOT] Failed to generate article for ${topic.name}:`, error)
-          this.errors.push({
-            topic: topic.name,
-            error: error.message,
-            timestamp: new Date(),
-          })
-        }
+      const promises = []
+      for (let i = 0; i < count; i++) {
+        promises.push(this.generateSingleArticle())
       }
 
-      this.fastify.log.info(`✅ [TRENDBOT] Generated ${generatedArticles.length} articles`)
-      this.updateNextRun()
+      const results = await Promise.allSettled(promises)
+      const successful = results.filter((r) => r.status === "fulfilled").length
+      const failed = results.filter((r) => r.status === "rejected").length
+
+      console.log(`✅ [TRENDBOT] Generation complete: ${successful} successful, ${failed} failed`)
+      this.lastGenerationTime = new Date()
+
+      return { successful, failed, total: count }
     } catch (error) {
-      this.fastify.log.error("❌ [TRENDBOT] Error in article generation:", error)
-      this.errors.push({
-        error: error.message,
-        timestamp: new Date(),
-      })
+      console.error("❌ [TRENDBOT] Error in batch generation:", error)
+      return { successful: 0, failed: count, total: count }
     }
   }
 
-  async getTrendingTopics() {
-    // Fetch trending topics from GNews
-    const newsArticles = await gnewsService.fetchNews("trending topics", "en", 10) // Fetch 10 top articles
-
-    // Convert news articles to trending topics format
-    return newsArticles.map((news) => ({
-      name: news.title,
-      category: news.category || "General",
-    }))
-  }
-
-  async saveArticle(articleData) {
+  async generateSingleArticle() {
     try {
-      // Check if article with similar title already exists
+      // Select random topic and category
+      const topic = this.topics[Math.floor(Math.random() * this.topics.length)]
+      const category = this.categories[Math.floor(Math.random() * this.categories.length)]
+
+      console.log(`📝 [TRENDBOT] Generating article: "${topic}" in ${category}`)
+
+      // Check if similar article already exists
       const existingArticle = await Article.findOne({
-        title: { $regex: articleData.title.substring(0, 20), $options: "i" },
+        title: new RegExp(topic, "i"),
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
       })
 
       if (existingArticle) {
-        this.fastify.log.warn(`⚠️ [TRENDBOT] Similar article already exists: ${articleData.title}`)
-        return existingArticle
+        console.log(`⚠️ [TRENDBOT] Similar article exists, skipping: ${topic}`)
+        return null
       }
 
-      const article = new Article({
-        ...articleData,
-        slug: articleData.title
-          .toLowerCase()
-          .replace(/[^a-z0-9\s-]/g, "")
-          .replace(/\s+/g, "-")
-          .replace(/-+/g, "-"),
-        excerpt: articleData.description,
-        thumbnail: articleData.imageUrl || "/placeholder.svg?height=400&width=600",
-        tags: articleData.keywords ? articleData.keywords.split(",").map((tag) => tag.trim()) : [],
-        views: Math.floor(Math.random() * 1000) + 100, // Random initial views
-        likes: Math.floor(Math.random() * 50) + 10, // Random initial likes
-        saves: Math.floor(Math.random() * 20) + 5, // Random initial saves
-        featured: Math.random() > 0.8, // Randomly feature some articles
-        author: articleData.source?.name || "TrendBot AI",
-        status: "published",
-        trendData: {
-          trendScore: Math.floor(Math.random() * 100), // Mock trend score
-          searchVolume: "N/A", // Could integrate with real trend data APIs
-          source: articleData.source?.name || "GNews",
-          lastUpdated: new Date(),
-        },
-        publishedAt: new Date(),
-        createdAt: new Date(),
-      })
+      // Generate article content
+      const articleData = await groqService.generateArticle(topic, category)
 
-      const savedArticle = await article.save()
-      this.fastify.log.info(`✅ [TRENDBOT] Saved article: ${savedArticle.title}`)
-      return savedArticle
+      // Ensure unique slug
+      let slug = articleData.slug
+      let counter = 1
+      while (await Article.findOne({ slug })) {
+        slug = `${articleData.slug}-${counter}`
+        counter++
+      }
+      articleData.slug = slug
+
+      // Save to database
+      const article = new Article(articleData)
+      await article.save()
+
+      console.log(`✅ [TRENDBOT] Article created: "${article.title}" (ID: ${article._id})`)
+      return article
     } catch (error) {
-      this.fastify.log.error("❌ [TRENDBOT] Error saving article:", error)
+      console.error("❌ [TRENDBOT] Error generating single article:", error)
       throw error
     }
   }
 
-  updateNextRun() {
-    if (this.isActive) {
-      this.nextRun = new Date(Date.now() + 30 * 60 * 1000) // 30 minutes from now
+  async getStats() {
+    try {
+      const totalArticles = await Article.countDocuments({ author: "TrendBot AI" })
+      const todayArticles = await Article.countDocuments({
+        author: "TrendBot AI",
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      })
+
+      return {
+        isRunning: this.isRunning,
+        lastGenerationTime: this.lastGenerationTime,
+        nextGenerationTime: this.isRunning ? new Date(Date.now() + this.generationInterval) : null,
+        totalArticles,
+        todayArticles,
+        generationInterval: this.generationInterval / 60000, // in minutes
+      }
+    } catch (error) {
+      console.error("❌ [TRENDBOT] Error getting stats:", error)
+      return {
+        isRunning: this.isRunning,
+        lastGenerationTime: this.lastGenerationTime,
+        nextGenerationTime: null,
+        totalArticles: 0,
+        todayArticles: 0,
+        generationInterval: this.generationInterval / 60000,
+      }
     }
   }
 
-  getStatus() {
-    return {
-      isActive: this.isActive,
-      lastRun: this.lastRun,
-      nextRun: this.nextRun,
-      articlesGenerated: this.articlesGenerated,
-      errors: this.errors.slice(-5), // Last 5 errors
-    }
+  isRunning() {
+    return this.isRunning
   }
 }
 
