@@ -6,11 +6,11 @@ export async function GET() {
 
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
     const response = await fetch(`${backendUrl}/api/articles/meta/categories`, {
-      cache: "no-store",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
+      next: { revalidate: 300 }, // Revalidate every 5 minutes instead of no-store
     })
 
     if (!response.ok) {
