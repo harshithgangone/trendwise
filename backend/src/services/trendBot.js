@@ -1,7 +1,7 @@
 const Article = require("../models/Article")
-const { generateArticleContent } = require("./groqService")
+const GroqService = require("./groqService")
 const { fetchGNewsArticles } = require("./gnewsService")
-const { getUnsplashImage } = require("./unsplashService")
+const slugify = require("slugify")
 
 class TrendBot {
   constructor() {
@@ -104,11 +104,11 @@ class TrendBot {
       console.log(`📊 Database health check: ${articleCount} articles in database`)
 
       // Check if we have required environment variables
-      const requiredEnvVars = ["GROQ_API_KEY", "GNEWS_API_KEY"]
+      const requiredEnvVars = ["GNEWS_API_KEY"]
       const missingVars = requiredEnvVars.filter((varName) => !process.env[varName])
 
       if (missingVars.length > 0) {
-        throw new Error(`Missing environment variables: ${missingVars.join(", ")}`)
+        console.log(`⚠️ Missing environment variables: ${missingVars.join(", ")} - continuing with available services`)
       }
 
       return true
@@ -176,7 +176,7 @@ class TrendBot {
           while (!aiContent && retryCount < maxRetries) {
             try {
               console.log(`🤖 Generating AI content (attempt ${retryCount + 1}/${maxRetries})...`)
-              aiContent = await generateArticleContent(sourceArticle)
+              aiContent = await GroqService.generateArticleContent(sourceArticle)
 
               if (aiContent) {
                 console.log("✅ AI content generated successfully")
@@ -201,20 +201,20 @@ class TrendBot {
 
           // Get image
           let thumbnail = sourceArticle.image || sourceArticle.urlToImage
-          if (!thumbnail && process.env.UNSPLASH_ACCESS_KEY) {
-            try {
-              thumbnail = await getUnsplashImage(sourceArticle.title)
-            } catch (error) {
-              console.error("Failed to get Unsplash image:", error.message)
-            }
+          if (!thumbnail) {
+            thumbnail = "/placeholder.svg?height=400&width=800"
           }
 
-          // Create article
+          // Create article with proper slug generation
+          const articleTitle = aiContent.title || sourceArticle.title
+          const articleSlug = this.generateSlug(articleTitle)
+
           const article = new Article({
-            title: aiContent.title || sourceArticle.title,
+            title: articleTitle,
+            slug: articleSlug, // Ensure slug is set
             content: aiContent.content || this.generateBasicContent(sourceArticle),
             excerpt: aiContent.excerpt || sourceArticle.description || sourceArticle.content?.substring(0, 200) + "...",
-            thumbnail: thumbnail || "/placeholder.svg?height=400&width=800",
+            thumbnail: thumbnail,
             category: aiContent.category || this.categorizeArticle(sourceArticle.title),
             tags: aiContent.tags || this.generateTags(sourceArticle.title),
             readTime: aiContent.readTime || Math.ceil((aiContent.content || sourceArticle.content || "").length / 1000),
@@ -237,7 +237,7 @@ class TrendBot {
           await article.save()
           articlesGenerated++
 
-          console.log(`✅ Article saved: ${article.title}`)
+          console.log(`✅ Article saved: ${article.title} (Slug: ${article.slug})`)
 
           // Add delay between articles to respect API limits
           if (i < Math.min(sources.length, targetArticles) - 1) {
@@ -353,10 +353,6 @@ class TrendBot {
 
   async fetchGoogleNewsRSS(count = 5) {
     try {
-      const categories = ["technology", "business", "science", "health"]
-      const articles = []
-
-      // This is a simplified version - in production, you'd use an RSS parser
       const topics = [
         "artificial intelligence",
         "cryptocurrency",
@@ -364,6 +360,8 @@ class TrendBot {
         "space exploration",
         "cybersecurity",
       ]
+
+      const articles = []
 
       for (let i = 0; i < Math.min(count, topics.length); i++) {
         articles.push({
@@ -468,6 +466,21 @@ class TrendBot {
       .filter((word) => word.length > 3 && !commonWords.includes(word))
       .slice(0, 5)
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+  }
+
+  // Generate slug function
+  generateSlug(title) {
+    if (!title) {
+      return `article-${Date.now()}`
+    }
+
+    return (
+      slugify(title, {
+        lower: true,
+        strict: true,
+        remove: /[*+~.()'"!:@]/g,
+      }).substring(0, 100) || `article-${Date.now()}`
+    )
   }
 
   getStatus() {

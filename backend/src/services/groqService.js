@@ -1,15 +1,19 @@
 const axios = require("axios")
 const Groq = require("groq-sdk")
 
+// Hardcode the API key at the module level for prototyping
+const GROQ_API_KEY = "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"
+
 const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+  apiKey: GROQ_API_KEY,
 })
 
 class GroqService {
   constructor() {
-    this.apiKey = "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"
+    // Hardcode the API key for prototyping as requested
+    this.apiKey = GROQ_API_KEY
     this.baseUrl = "https://api.groq.com/openai/v1"
-    this.model = "llama-3.1-8b-instant" // Updated model
+    this.model = "llama-3.1-8b-instant"
     this.requestTimeout = 30000 // 30 seconds
     this.maxRetries = 3
     this.rateLimitDelay = 2000 // 2 seconds between requests
@@ -17,9 +21,7 @@ class GroqService {
       apiKey: this.apiKey,
     })
 
-    if (!this.apiKey) {
-      console.warn("⚠️ [GROQ] API key not found. Set GROQ_API_KEY environment variable.")
-    }
+    console.log(`🔑 [GROQ SERVICE] API Key initialized: ${this.apiKey ? "Present" : "Missing"}`)
   }
 
   async generateArticleContent(article) {
@@ -496,4 +498,131 @@ Focus on providing value to readers while maintaining readability and SEO best p
   }
 }
 
-module.exports = new GroqService()
+// Create a singleton instance with the hardcoded API key
+const groqServiceInstance = new GroqService()
+
+// Export both the class and the instance
+module.exports = groqServiceInstance
+
+// Also export the generateArticleContent function directly
+async function generateArticleContent(newsItem) {
+  try {
+    console.log(`🤖 [GROQ] Generating content for: ${newsItem.title.substring(0, 50)}...`)
+
+    const prompt = `
+You are a professional content writer for TrendWise, an AI-powered blog platform. 
+Create a comprehensive, engaging article based on this news item:
+
+Title: ${newsItem.title}
+Description: ${newsItem.description}
+Source: ${newsItem.source?.name}
+URL: ${newsItem.url}
+
+Requirements:
+1. Write a compelling, SEO-optimized article (800-1200 words)
+2. Use proper HTML formatting with <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em> tags
+3. Create an engaging excerpt (150-200 characters)
+4. Generate 5-7 relevant tags
+5. Create 3-5 AI-generated tweet-style social media posts
+6. Make it informative, engaging, and professional
+7. Include proper headings and subheadings
+8. Add bullet points where appropriate
+9. Ensure the content is original and adds value beyond the source
+
+Format your response as JSON:
+{
+"title": "Enhanced article title",
+"content": "Full HTML article content with proper tags",
+"excerpt": "Compelling excerpt",
+"tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+"tweets": ["tweet1", "tweet2", "tweet3"],
+"readTime": 6
+}
+`
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert content writer and SEO specialist. Always respond with valid JSON format.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      model: "llama-3.1-70b-versatile",
+      temperature: 0.7,
+      max_tokens: 4000,
+      response_format: { type: "json_object" },
+    })
+
+    const response = completion.choices[0]?.message?.content
+
+    if (!response) {
+      throw new Error("No response from Groq API")
+    }
+
+    let parsedContent
+    try {
+      parsedContent = JSON.parse(response)
+    } catch (parseError) {
+      console.error("❌ [GROQ] JSON parsing failed:", parseError)
+      // Fallback content
+      parsedContent = {
+        title: newsItem.title,
+        content: `<h2>${newsItem.title}</h2><p>${newsItem.description}</p>`,
+        excerpt: newsItem.description?.substring(0, 150) + "...",
+        tags: ["News", "Trending", "Current Events"],
+        tweets: [
+          `Breaking: ${newsItem.title.substring(0, 100)}...`,
+          `Latest update on ${newsItem.title.substring(0, 80)}... #trending`,
+          `What you need to know about ${newsItem.title.substring(0, 70)}...`,
+        ],
+        readTime: 3,
+      }
+    }
+
+    // Validate and clean the content
+    const cleanedContent = {
+      title: parsedContent.title || newsItem.title,
+      content: parsedContent.content || `<p>${newsItem.description}</p>`,
+      excerpt: parsedContent.excerpt || newsItem.description?.substring(0, 150) + "...",
+      tags: Array.isArray(parsedContent.tags) ? parsedContent.tags : ["News", "Trending"],
+      tweets: Array.isArray(parsedContent.tweets) ? parsedContent.tweets : [],
+      readTime: parsedContent.readTime || 3,
+    }
+
+    console.log(`✅ [GROQ] Content generated successfully for: ${cleanedContent.title.substring(0, 50)}...`)
+    return cleanedContent
+  } catch (error) {
+    console.error("❌ [GROQ] Error generating content:", error)
+
+    // Return fallback content
+    return {
+      title: newsItem.title,
+      content: `
+        <h2>${newsItem.title}</h2>
+        <p>${newsItem.description}</p>
+        <p>This article is based on breaking news from ${newsItem.source?.name}. 
+        We are continuously updating our content to provide you with the most accurate and up-to-date information.</p>
+        <h3>Key Points</h3>
+        <ul>
+          <li>Breaking news development</li>
+          <li>Ongoing story coverage</li>
+          <li>Regular updates available</li>
+        </ul>
+      `,
+      excerpt: newsItem.description?.substring(0, 150) + "..." || "Breaking news update",
+      tags: ["Breaking News", "Current Events", "Trending"],
+      tweets: [
+        `🚨 Breaking: ${newsItem.title.substring(0, 100)}...`,
+        `Latest: ${newsItem.title.substring(0, 120)} #news`,
+        `Update: ${newsItem.title.substring(0, 110)} - stay informed!`,
+      ],
+      readTime: 2,
+    }
+  }
+}
+
+module.exports.generateArticleContent = generateArticleContent
