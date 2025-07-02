@@ -116,8 +116,8 @@ class TrendBot {
 
       // Step 2: Crawl for trending topics
       console.log("🕷️ [TrendBot] Crawling for trending topics...")
-      const trendCrawler = new TrendCrawler()
-      const trends = await trendCrawler.crawlTrends()
+      // Use the imported instance directly
+      const trends = await TrendCrawler.crawlTrends()
       console.log(`📊 [TrendBot] Found ${trends.length} trending topics`)
 
       if (trends.length === 0) {
@@ -195,29 +195,26 @@ class TrendBot {
     }
 
     try {
-      // Check TrendCrawler
-      const trendCrawler = new TrendCrawler()
-      healthStatus.trendCrawler = await trendCrawler.healthCheck()
+      // Check TrendCrawler - use the imported instance directly
+      healthStatus.trendCrawler = await TrendCrawler.healthCheck()
       console.log(`🕷️ [TrendBot] TrendCrawler health: ${healthStatus.trendCrawler ? "✅ Healthy" : "❌ Unhealthy"}`)
     } catch (error) {
       console.log("❌ [TrendBot] TrendCrawler health check failed:", error.message)
     }
 
     try {
-      // Check GroqService
-      const groqService = new GroqService()
-      healthStatus.groqService = await groqService.healthCheck()
-      console.log(`🤖 [TrendBot] GroqService health: ${healthStatus.groqService ? "✅ Healthy" : "❌ Unhealthy"}`)
+      // Check GroqService - use the imported instance directly
+      healthStatus.groqService = await GroqService.testConnection()
+      console.log(`🤖 [TrendBot] GroqService health: ${healthStatus.groqService.success ? "✅ Healthy" : "❌ Unhealthy"}`)
     } catch (error) {
       console.log("❌ [TrendBot] GroqService health check failed:", error.message)
     }
 
     try {
-      // Check UnsplashService
-      const unsplashService = new UnsplashService()
-      healthStatus.unsplashService = await unsplashService.healthCheck()
+      // Check UnsplashService - use the imported instance directly
+      healthStatus.unsplashService = await UnsplashService.testConnection()
       console.log(
-        `🖼️ [TrendBot] UnsplashService health: ${healthStatus.unsplashService ? "✅ Healthy" : "❌ Unhealthy"}`,
+        `🖼️ [TrendBot] UnsplashService health: ${healthStatus.unsplashService.success ? "✅ Healthy" : "❌ Unhealthy"}`,
       )
     } catch (error) {
       console.log("❌ [TrendBot] UnsplashService health check failed:", error.message)
@@ -351,10 +348,10 @@ class TrendBot {
     try {
       // Step 1: Generate content using AI
       console.log("🤖 [TrendBot] Generating AI content...")
-      const groqService = new GroqService()
-      const aiContent = await groqService.generateArticle(trend)
+      // Use the imported instance directly
+      const aiContent = await GroqService.generateArticleContent(trend)
 
-      if (!aiContent || !aiContent.title || !aiContent.content) {
+      if (!aiContent || !aiContent.content) {
         throw new Error("AI service returned invalid content")
       }
 
@@ -365,8 +362,8 @@ class TrendBot {
       let thumbnail = "/placeholder.svg?height=400&width=600"
 
       try {
-        const unsplashService = new UnsplashService()
-        const imageUrl = await unsplashService.searchImage(trend.title)
+        // Use the imported instance directly
+        const imageUrl = await UnsplashService.searchImage(trend.title)
         if (imageUrl) {
           thumbnail = imageUrl
           console.log("✅ [TrendBot] Featured image fetched from Unsplash")

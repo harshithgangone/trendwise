@@ -69,6 +69,7 @@ class GroqService {
 
   async makeGroqRequest(prompt, responseFormat = 'text') {
     console.log('📡 [GROQ SERVICE] Making API request to Groq...')
+    console.log(`📝 [GROQ SERVICE] Prompt summary: ${prompt.substring(0, 100)}...`)
     
     const requestData = {
       model: this.model,
@@ -92,7 +93,9 @@ class GroqService {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         console.log(`🔄 [GROQ SERVICE] Attempt ${attempt}/${this.maxRetries}`)
+        console.log(`⏳ [GROQ SERVICE] Sending request to Groq API...`)
         
+        const startTime = Date.now()
         const response = await axios.post(`${this.baseUrl}/chat/completions`, requestData, {
           headers: {
             'Authorization': `Bearer ${this.apiKey}`,
@@ -100,12 +103,17 @@ class GroqService {
           },
           timeout: this.requestTimeout
         })
+        const endTime = Date.now()
+        const duration = endTime - startTime
 
         console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
+        console.log(`⏱️ [GROQ SERVICE] Request duration: ${duration}ms`)
         console.log(`📊 [GROQ SERVICE] Usage: ${JSON.stringify(response.data.usage || {})}`)
 
         if (response.data && response.data.choices && response.data.choices[0]) {
           const content = response.data.choices[0].message.content
+          console.log(`📄 [GROQ SERVICE] Response content length: ${content.length} characters`)
+          console.log(`📄 [GROQ SERVICE] Response preview: ${content.substring(0, 100)}...`)
 
           if (responseFormat === 'json') {
             try {
@@ -305,6 +313,15 @@ As we continue to monitor these developments, it's clear that staying informed a
         fallbackAvailable: true,
         ...errorDetails
       }
+    }
+  }
+
+  async healthCheck() {
+    try {
+      const result = await this.testConnection()
+      return result.success
+    } catch (error) {
+      return false
     }
   }
 

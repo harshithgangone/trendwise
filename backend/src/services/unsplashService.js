@@ -203,7 +203,9 @@ class UnsplashService {
       console.log('📡 [UNSPLASH SERVICE] Testing API connection...')
       
       const response = await axios.get(`${this.baseUrl}/photos/random`, {
-        params: { count: 1 },
+        params: {
+          count: 1
+        },
         headers: {
           'Authorization': `Client-ID ${this.accessKey}`,
           'Accept-Version': 'v1'
@@ -214,11 +216,7 @@ class UnsplashService {
       console.log('✅ [UNSPLASH SERVICE] Connection test successful')
       return { 
         success: true,
-        status: response.status,
-        rateLimit: {
-          remaining: response.headers['x-ratelimit-remaining'],
-          limit: response.headers['x-ratelimit-limit']
-        }
+        status: response.status
       }
     } catch (error) {
       console.error('❌ [UNSPLASH SERVICE] Connection test failed:', error.message)
@@ -227,12 +225,6 @@ class UnsplashService {
       if (error.response) {
         errorDetails.status = error.response.status
         errorDetails.statusText = error.response.statusText
-        
-        if (error.response.status === 401) {
-          errorDetails.error = 'Invalid access key'
-        } else if (error.response.status === 403) {
-          errorDetails.error = 'Rate limit exceeded or access denied'
-        }
       }
 
       return { 
