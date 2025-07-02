@@ -1,137 +1,123 @@
+const cron = require("node-cron")
 const Article = require("../models/Article")
 const groqService = require("./groqService")
-const gnewsService = require("./gnewsService")
 
 class TrendBot {
   constructor() {
-    this.isActive = false
-    this.intervalId = null
+    this.isRunning = false
     this.lastRun = null
-    this.articlesGenerated = 0
-  }
-
-  async start() {
-    try {
-      console.log("🤖 [TRENDBOT] Starting TrendBot...")
-      this.isActive = true
-
-      // Generate initial articles immediately
-      await this.generateArticles()
-
-      // Set up interval to run every 30 minutes
-      this.intervalId = setInterval(
-        async () => {
-          try {
-            await this.generateArticles()
-          } catch (error) {
-            console.error("❌ [TRENDBOT] Error in scheduled run:", error)
-          }
-        },
-        30 * 60 * 1000,
-      ) // 30 minutes
-
-      console.log("✅ [TRENDBOT] Started successfully - will run every 30 minutes")
-    } catch (error) {
-      console.error("❌ [TRENDBOT] Failed to start:", error)
-      this.isActive = false
-    }
-  }
-
-  stop() {
-    console.log("🛑 [TRENDBOT] Stopping TrendBot...")
-    this.isActive = false
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = null
-    }
-    console.log("✅ [TRENDBOT] Stopped successfully")
   }
 
   async generateArticles() {
-    try {
-      console.log("🤖 [TRENDBOT] Starting article generation...")
-      this.lastRun = new Date()
+    if (this.isRunning) {
+      console.log("🤖 [TRENDBOT] Already running, skipping...")
+      return
+    }
 
-      const topics = [
-        { topic: "Artificial Intelligence Breakthrough", category: "technology" },
-        { topic: "Climate Change Solutions", category: "environment" },
-        { topic: "Global Economic Trends", category: "business" },
-        { topic: "Space Exploration Updates", category: "science" },
-        { topic: "Renewable Energy Innovation", category: "technology" },
-        { topic: "Healthcare Technology Advances", category: "health" },
-        { topic: "Cryptocurrency Market Analysis", category: "business" },
-        { topic: "Social Media Platform Changes", category: "technology" },
+    try {
+      this.isRunning = true
+      console.log("🤖 [TRENDBOT] Starting article generation...")
+
+      // Trending topics to generate articles about
+      const trendingTopics = [
+        "Artificial Intelligence in Healthcare",
+        "Sustainable Energy Solutions",
+        "Remote Work Technologies",
+        "Blockchain Applications",
+        "Climate Change Innovation",
+        "Digital Transformation",
+        "Cybersecurity Trends",
+        "Space Technology",
+        "Quantum Computing",
+        "Green Technology",
+        "Smart Cities",
+        "Biotechnology Advances",
+        "Renewable Energy",
+        "Machine Learning Applications",
+        "IoT Innovations",
       ]
 
-      // Generate 2-3 articles per run
-      const selectedTopics = topics.sort(() => 0.5 - Math.random()).slice(0, 3)
+      // Select 3-5 random topics
+      const selectedTopics = trendingTopics.sort(() => 0.5 - Math.random()).slice(0, Math.floor(Math.random() * 3) + 3)
 
-      for (const { topic, category } of selectedTopics) {
+      console.log(`🎯 [TRENDBOT] Selected topics:`, selectedTopics)
+
+      // Generate articles
+      const articles = await groqService.generateMultipleArticles(selectedTopics)
+
+      // Save articles to database
+      let savedCount = 0
+      for (const articleData of articles) {
         try {
-          console.log(`📝 [TRENDBOT] Generating article: ${topic}`)
+          // Create slug from title
+          const slug = articleData.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/(^-|-$)/g, "")
 
           // Check if article with similar title already exists
           const existingArticle = await Article.findOne({
-            title: { $regex: topic, $options: "i" },
+            $or: [{ slug: slug }, { title: { $regex: articleData.title.substring(0, 20), $options: "i" } }],
           })
 
-          if (existingArticle) {
-            console.log(`⏭️ [TRENDBOT] Article about "${topic}" already exists, skipping`)
-            continue
+          if (!existingArticle) {
+            const article = new Article({
+              ...articleData,
+              slug: slug,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+
+            await article.save()
+            savedCount++
+            console.log(`✅ [TRENDBOT] Saved article: ${article.title}`)
+          } else {
+            console.log(`⚠️ [TRENDBOT] Article already exists: ${articleData.title}`)
           }
-
-          // Generate article using Groq
-          const articleData = await groqService.generateArticle(topic, category)
-
-          // Create article in database
-          const article = new Article({
-            title: articleData.title,
-            excerpt: articleData.excerpt,
-            content: articleData.content,
-            category: articleData.category,
-            tags: articleData.tags,
-            author: "TrendBot AI",
-            source: articleData.source,
-            publishedAt: new Date(),
-            imageUrl: `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(topic)}`,
-            slug: this.generateSlug(articleData.title),
-            views: Math.floor(Math.random() * 100),
-            likes: Math.floor(Math.random() * 50),
-            trending: Math.random() > 0.7, // 30% chance of being trending
-          })
-
-          await article.save()
-          this.articlesGenerated++
-
-          console.log(`✅ [TRENDBOT] Created article: "${articleData.title}"`)
         } catch (error) {
-          console.error(`❌ [TRENDBOT] Failed to generate article for "${topic}":`, error)
+          console.error(`❌ [TRENDBOT] Error saving article:`, error.message)
         }
       }
 
-      console.log(`🎉 [TRENDBOT] Generation complete. Total articles generated: ${this.articlesGenerated}`)
+      this.lastRun = new Date()
+      console.log(`🎉 [TRENDBOT] Generation complete! Saved ${savedCount} new articles`)
     } catch (error) {
-      console.error("❌ [TRENDBOT] Error in generateArticles:", error)
+      console.error("❌ [TRENDBOT] Error in article generation:", error)
+    } finally {
+      this.isRunning = false
     }
   }
 
-  generateSlug(title) {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9 -]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .trim("-")
+  start() {
+    console.log("🤖 [TRENDBOT] Starting scheduled article generation...")
+
+    // Run immediately on startup
+    setTimeout(() => {
+      this.generateArticles()
+    }, 5000) // Wait 5 seconds after startup
+
+    // Schedule to run every 30 minutes
+    cron.schedule("*/30 * * * *", () => {
+      console.log("⏰ [TRENDBOT] Scheduled run triggered")
+      this.generateArticles()
+    })
+
+    console.log("✅ [TRENDBOT] Scheduler started - will run every 30 minutes")
   }
 
   getStatus() {
     return {
-      active: this.isActive,
+      isRunning: this.isRunning,
       lastRun: this.lastRun,
-      articlesGenerated: this.articlesGenerated,
-      nextRun: this.intervalId ? new Date(Date.now() + 30 * 60 * 1000) : null,
+      nextRun: this.lastRun ? new Date(this.lastRun.getTime() + 30 * 60 * 1000) : null,
     }
   }
 }
 
-module.exports = new TrendBot()
+const trendBot = new TrendBot()
+
+module.exports = {
+  startTrendBot: () => trendBot.start(),
+  generateArticles: () => trendBot.generateArticles(),
+  getTrendBotStatus: () => trendBot.getStatus(),
+}

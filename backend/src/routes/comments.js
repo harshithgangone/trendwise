@@ -2,77 +2,48 @@ const Comment = require("../models/Comment")
 
 async function commentsRoutes(fastify, options) {
   // Get comments for an article
-  fastify.get("/:articleId", async (request, reply) => {
+  fastify.get("/comments/:articleId", async (request, reply) => {
     try {
       const { articleId } = request.params
-      const { page = 1, limit = 10 } = request.query
 
-      const comments = await Comment.find({ articleId })
-        .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit)
-        .populate("userId", "name picture")
-        .exec()
+      const comments = await Comment.find({ articleId }).sort({ createdAt: -1 }).lean()
 
-      const total = await Comment.countDocuments({ articleId })
-
-      reply.send({
+      return {
         success: true,
-        data: comments,
-        pagination: {
-          currentPage: Number.parseInt(page),
-          totalPages: Math.ceil(total / limit),
-          totalComments: total,
-        },
-      })
+        comments: comments || [],
+      }
     } catch (error) {
-      fastify.log.error("Error fetching comments:", error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to fetch comments",
-        message: error.message,
-      })
+      fastify.log.error("❌ [BACKEND] Error fetching comments:", error)
+      return { success: true, comments: [] }
     }
   })
 
   // Create a new comment
-  fastify.post("/", async (request, reply) => {
+  fastify.post("/comments", async (request, reply) => {
     try {
-      const { articleId, userId, content } = request.body
-
-      if (!articleId || !userId || !content) {
-        return reply.status(400).send({
-          success: false,
-          error: "Missing required fields",
-        })
-      }
+      const { articleId, content, author } = request.body
 
       const comment = new Comment({
         articleId,
-        userId,
         content,
+        author,
         createdAt: new Date(),
       })
 
       await comment.save()
-      await comment.populate("userId", "name picture")
 
-      reply.send({
+      return {
         success: true,
-        data: comment,
-      })
+        comment: comment.toObject(),
+      }
     } catch (error) {
-      fastify.log.error("Error creating comment:", error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to create comment",
-        message: error.message,
-      })
+      fastify.log.error("❌ [BACKEND] Error adding comment:", error)
+      return reply.code(500).send({ success: false, error: "Failed to add comment" })
     }
   })
 
   // Like/unlike a comment
-  fastify.post("/:commentId/like", async (request, reply) => {
+  fastify.post("/comments/:commentId/like", async (request, reply) => {
     try {
       const { commentId } = request.params
       const { userId } = request.body

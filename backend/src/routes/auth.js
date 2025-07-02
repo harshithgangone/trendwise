@@ -1,88 +1,74 @@
 const User = require("../models/User")
 
 async function authRoutes(fastify, options) {
-  // Google Sign-In
-  fastify.post("/google-signin", async (request, reply) => {
+  // Google sign-in
+  fastify.post("/auth/google-signin", async (request, reply) => {
     try {
-      const { email, name, picture, googleId } = request.body
+      const { email, name, image, googleId } = request.body
 
-      if (!email || !name || !googleId) {
-        return reply.status(400).send({
-          success: false,
-          error: "Missing required fields",
-        })
-      }
+      fastify.log.info(`🔐 [BACKEND] Google sign-in attempt for: ${email}`)
 
-      // Check if user already exists
       let user = await User.findOne({ email })
 
       if (!user) {
-        // Create new user
         user = new User({
           email,
           name,
-          picture,
+          image,
           googleId,
           provider: "google",
           createdAt: new Date(),
         })
         await user.save()
-        fastify.log.info(`✅ [AUTH] New user created: ${email}`)
+        fastify.log.info(`✅ [BACKEND] New user created: ${email}`)
       } else {
-        // Update existing user
+        // Update user info
         user.name = name
-        user.picture = picture
+        user.image = image
         user.lastLogin = new Date()
         await user.save()
-        fastify.log.info(`✅ [AUTH] User updated: ${email}`)
+        fastify.log.info(`✅ [BACKEND] User updated: ${email}`)
       }
 
-      reply.send({
+      return {
         success: true,
-        data: {
-          user: {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            picture: user.picture,
-          },
+        user: {
+          id: user._id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
         },
-      })
+      }
     } catch (error) {
-      fastify.log.error("Error in Google sign-in:", error)
-      reply.status(500).send({
-        success: false,
-        error: "Authentication failed",
-        message: error.message,
-      })
+      fastify.log.error("❌ [BACKEND] Error in Google sign-in:", error)
+      return reply.code(500).send({ success: false, error: "Authentication failed" })
     }
   })
 
   // Get user profile
-  fastify.get("/profile/:userId", async (request, reply) => {
+  fastify.get("/auth/profile/:email", async (request, reply) => {
     try {
-      const { userId } = request.params
+      const { email } = request.params
 
-      const user = await User.findById(userId).select("-googleId")
+      const user = await User.findOne({ email }).lean()
 
       if (!user) {
-        return reply.status(404).send({
-          success: false,
-          error: "User not found",
-        })
+        return reply.code(404).send({ success: false, error: "User not found" })
       }
 
-      reply.send({
+      return {
         success: true,
-        data: user,
-      })
+        user: {
+          id: user._id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
+          createdAt: user.createdAt,
+        },
+      }
     } catch (error) {
-      fastify.log.error("Error fetching user profile:", error)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to fetch user profile",
-        message: error.message,
-      })
+      fastify.log.error("❌ [BACKEND] Error fetching user profile:", error)
+      return reply.code(500).send({ success: false, error: "Failed to fetch profile" })
     }
   })
 }

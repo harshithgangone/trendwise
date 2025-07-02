@@ -1,262 +1,121 @@
-// Check if we're in production environment
+const fastify = require("fastify")
+
+// Determine if we're in production
 const isProduction = process.env.NODE_ENV === "production" || process.env.RENDER === "true" || !process.env.NODE_ENV
 
-const fastify = require("fastify")({
+// Create Fastify instance with proper logger configuration
+const app = fastify({
   logger: isProduction
-    ? {
-        level: "info",
-      }
+    ? { level: "info" } // Simple JSON logging for production
     : {
-        level: "info",
         transport: {
           target: "pino-pretty",
           options: {
             colorize: true,
-            translateTime: "HH:MM:ss Z",
-            ignore: "pid,hostname",
           },
         },
       },
 })
 
-const mongoose = require("mongoose")
-require("dotenv").config()
-
 // Import services
-const trendBot = require("./services/trendBot")
-const groqService = require("./services/groqService")
+const connectDB = require("./config/database")
+const { startTrendBot } = require("./services/trendBot")
 
-// Import routes
-const articlesRoutes = require("./routes/articles")
-const adminRoutes = require("./routes/admin")
-const commentsRoutes = require("./routes/comments")
-const trendsRoutes = require("./routes/trends")
-const authRoutes = require("./routes/auth")
-
-// Register plugins
-fastify.register(require("@fastify/cors"), {
+// CORS configuration
+app.register(require("@fastify/cors"), {
   origin: [
     "http://localhost:3000",
     "https://trendwise-frontend.vercel.app",
-    "https://trendwise.vercel.app",
+    "https://trendwise-frontend-git-main-your-username.vercel.app",
     /\.vercel\.app$/,
   ],
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 })
 
-fastify.register(require("@fastify/helmet"), {
-  contentSecurityPolicy: false,
-})
-
-// Database connection with enhanced logging
-async function connectDatabase() {
-  try {
-    fastify.log.info("🗄️ [DATABASE] Connecting to MongoDB...")
-    fastify.log.info(`🔗 [DATABASE] Connection string: ${process.env.MONGODB_URI ? "Present ✅" : "Missing ❌"}`)
-
-    await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise", {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    })
-
-    fastify.log.info("✅ [DATABASE] Connected to MongoDB successfully")
-    fastify.log.info(`📊 [DATABASE] Database: ${mongoose.connection.name}`)
-    fastify.log.info(`🏠 [DATABASE] Host: ${mongoose.connection.host}`)
-
-    // Test database with a simple query
-    const collections = await mongoose.connection.db.listCollections().toArray()
-    fastify.log.info(`📚 [DATABASE] Available collections: ${collections.map((c) => c.name).join(", ")}`)
-  } catch (error) {
-    fastify.log.error("❌ [DATABASE] Connection failed:", error)
-    process.exit(1)
+// Health check routes
+app.get("/", async (request, reply) => {
+  return {
+    message: "TrendWise Backend API is running!",
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || "development",
   }
-}
+})
 
-// Register routes with logging
-fastify.log.info("🛣️ [ROUTES] Registering API routes...")
-fastify.register(articlesRoutes, { prefix: "/api/articles" })
-fastify.register(adminRoutes, { prefix: "/api/admin" })
-fastify.register(commentsRoutes, { prefix: "/api/comments" })
-fastify.register(trendsRoutes, { prefix: "/api/trends" })
-fastify.register(authRoutes, { prefix: "/api/auth" })
-fastify.log.info("✅ [ROUTES] All routes registered")
-
-// Enhanced health check endpoint
-fastify.get("/health", async (request, reply) => {
-  const health = {
-    status: "OK",
+app.get("/health", async (request, reply) => {
+  return {
+    status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    database: {
-      status: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-      name: mongoose.connection.name,
-      host: mongoose.connection.host,
-    },
+    environment: process.env.NODE_ENV || "development",
+  }
+})
+
+app.get("/api/health/detailed", async (request, reply) => {
+  const mongoose = require("mongoose")
+
+  return {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
     services: {
-      trendBot: trendBot.getStatus(),
-      groq: groqService.getStatus(),
+      database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+      groq: process.env.GROQ_API_KEY ? "configured" : "not configured",
+      gnews: process.env.GNEWS_API_KEY ? "configured" : "not configured",
     },
-    environment: {
-      nodeEnv: process.env.NODE_ENV || "development",
-      port: process.env.PORT || 3001,
-      groqApiKey: !!process.env.GROQ_API_KEY,
-      mongoUri: !!process.env.MONGODB_URI,
-      isProduction: isProduction,
-    },
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    environment: process.env.NODE_ENV || "development",
   }
-
-  return health
 })
 
-// Detailed health check
-fastify.get("/api/health/detailed", async (request, reply) => {
-  fastify.log.info("🏥 [HEALTH] Detailed health check requested")
+// Register API routes
+app.register(require("./routes/articles"), { prefix: "/api" })
+app.register(require("./routes/auth"), { prefix: "/api" })
+app.register(require("./routes/admin"), { prefix: "/api" })
+app.register(require("./routes/comments"), { prefix: "/api" })
+app.register(require("./routes/trends"), { prefix: "/api" })
 
-  const detailedHealth = {
-    server: {
-      status: "healthy",
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      nodeVersion: process.version,
-      platform: process.platform,
-    },
-    database: {
-      status: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-      host: mongoose.connection.host,
-      name: mongoose.connection.name,
-      readyState: mongoose.connection.readyState,
-    },
-    services: {
-      trendBot: trendBot.getStatus(),
-      groq: groqService.getStatus(),
-    },
-    environment: {
-      nodeEnv: process.env.NODE_ENV || "development",
-      port: process.env.PORT || 3001,
-      hasGroqKey: !!process.env.GROQ_API_KEY,
-      hasMongoUri: !!process.env.MONGODB_URI,
-      isProduction: isProduction,
-      renderEnv: process.env.RENDER || "false",
-    },
-  }
-
-  fastify.log.info("📊 [HEALTH] Health check completed")
-  return detailedHealth
-})
-
-// Error handler with enhanced logging
-fastify.setErrorHandler((error, request, reply) => {
-  fastify.log.error("❌ [SERVER] Error occurred:")
-  fastify.log.error(`   URL: ${request.method} ${request.url}`)
-  fastify.log.error(`   Error: ${error.message}`)
-  if (!isProduction) {
-    fastify.log.error(`   Stack: ${error.stack}`)
-  }
-
-  reply.status(500).send({
-    success: false,
-    error: "Internal Server Error",
-    message: !isProduction ? error.message : "Something went wrong",
-  })
-})
-
-// Graceful shutdown
-const gracefulShutdown = async (signal) => {
-  fastify.log.info(`🛑 [SERVER] Received ${signal}, shutting down gracefully...`)
-
-  try {
-    // Stop the trend bot
-    if (trendBot && trendBot.isActive) {
-      fastify.log.info("🤖 [SERVER] Stopping TrendBot...")
-      trendBot.stop()
-    }
-
-    // Close database connection
-    if (mongoose.connection.readyState === 1) {
-      fastify.log.info("🗄️ [SERVER] Closing database connection...")
-      await mongoose.connection.close()
-    }
-
-    // Close fastify server
-    fastify.log.info("🚀 [SERVER] Closing HTTP server...")
-    await fastify.close()
-
-    fastify.log.info("✅ [SERVER] Graceful shutdown completed")
-    process.exit(0)
-  } catch (error) {
-    fastify.log.error("❌ [SERVER] Error during shutdown:", error)
-    process.exit(1)
-  }
-}
-
-// Register shutdown handlers
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"))
-process.on("SIGINT", () => gracefulShutdown("SIGINT"))
-
-// Start server with enhanced logging
+// Start server
 const start = async () => {
   try {
-    fastify.log.info("🚀 [SERVER] Starting TrendWise Backend Server...")
-    fastify.log.info(`🌍 [SERVER] Environment: ${process.env.NODE_ENV || "development"}`)
-    fastify.log.info(`🌍 [SERVER] Is Production: ${isProduction}`)
-    fastify.log.info(`🌍 [SERVER] Render Environment: ${process.env.RENDER || "false"}`)
-    fastify.log.info(`🔧 [SERVER] Node.js version: ${process.version}`)
-    fastify.log.info(`🔑 [SERVER] Environment variables check:`)
-    fastify.log.info(`   GROQ_API_KEY: ${process.env.GROQ_API_KEY ? "Present ✅" : "Missing ❌"}`)
-    fastify.log.info(`   MONGODB_URI: ${process.env.MONGODB_URI ? "Present ✅" : "Missing ❌"}`)
-    fastify.log.info(`   PORT: ${process.env.PORT || 3001}`)
-
-    // Connect to database first
-    await connectDatabase()
-
-    // Test Groq service
-    fastify.log.info("🤖 [SERVER] Testing Groq service...")
-    const groqHealthy = await groqService.healthCheck()
-    fastify.log.info(`🤖 [SERVER] Groq service: ${groqHealthy ? "Healthy ✅" : "Unhealthy ❌"}`)
+    // Connect to database
+    await connectDB()
+    app.log.info("✅ Database connected successfully")
 
     // Start the server
     const port = process.env.PORT || 3001
     const host = isProduction ? "0.0.0.0" : "localhost"
 
-    await fastify.listen({ port: Number.parseInt(port), host })
-    fastify.log.info(`✅ [SERVER] Server running on http://${host}:${port}`)
-    fastify.log.info(`🔗 [SERVER] Health check: http://${host}:${port}/health`)
+    await app.listen({ port: Number.parseInt(port), host })
+    app.log.info(`🚀 Server running on ${host}:${port}`)
 
     // Start TrendBot after server is running
-    fastify.log.info("🤖 [SERVER] Starting TrendBot...")
-    try {
-      trendBot.start()
-      fastify.log.info("✅ [SERVER] TrendBot started successfully")
-    } catch (botError) {
-      fastify.log.error("❌ [SERVER] Failed to start TrendBot:", botError)
-      // Don't exit - server can run without bot
+    if (process.env.GROQ_API_KEY) {
+      app.log.info("🤖 Starting TrendBot...")
+      await startTrendBot()
+      app.log.info("✅ TrendBot started successfully")
+    } else {
+      app.log.warn("⚠️ GROQ_API_KEY not found, TrendBot disabled")
     }
-
-    fastify.log.info("🎉 [SERVER] All systems operational!")
-    fastify.log.info("📊 [SERVER] Available endpoints:")
-    fastify.log.info("   GET  /health")
-    fastify.log.info("   GET  /api/health/detailed")
-    fastify.log.info("   GET  /api/articles")
-    fastify.log.info("   GET  /api/articles/trending")
-    fastify.log.info("   GET  /api/articles/categories")
-    fastify.log.info("   POST /api/auth/google-signin")
-  } catch (error) {
-    fastify.log.error("❌ [SERVER] Failed to start:", error)
+  } catch (err) {
+    app.log.error("❌ Error starting server:", err)
     process.exit(1)
   }
 }
 
-// Handle uncaught exceptions
-process.on("uncaughtException", (error) => {
-  fastify.log.error("❌ [SERVER] Uncaught Exception:", error)
-  gracefulShutdown("UNCAUGHT_EXCEPTION")
+// Handle graceful shutdown
+process.on("SIGTERM", async () => {
+  app.log.info("🛑 SIGTERM received, shutting down gracefully")
+  await app.close()
+  process.exit(0)
 })
 
-process.on("unhandledRejection", (reason, promise) => {
-  fastify.log.error("❌ [SERVER] Unhandled Rejection at:", promise, "reason:", reason)
-  gracefulShutdown("UNHANDLED_REJECTION")
+process.on("SIGINT", async () => {
+  app.log.info("🛑 SIGINT received, shutting down gracefully")
+  await app.close()
+  process.exit(0)
 })
 
-// Start the application
 start()
