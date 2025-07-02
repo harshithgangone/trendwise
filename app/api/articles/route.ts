@@ -17,9 +17,9 @@ const mockArticles = [
     createdAt: new Date().toISOString(),
     tags: ["AI", "Healthcare", "Technology", "Innovation"],
     readTime: 5,
-    views: 1250,
-    likes: 89,
-    saves: 34,
+    views: 0, // Start with zero views
+    likes: 0, // Start with zero likes
+    saves: 0, // Start with zero saves
     featured: true,
     trendData: {
       source: "gnews",
@@ -39,9 +39,9 @@ const mockArticles = [
     createdAt: new Date(Date.now() - 3600000).toISOString(),
     tags: ["Sustainability", "Green Tech", "Environment", "Innovation"],
     readTime: 6,
-    views: 2100,
-    likes: 156,
-    saves: 78,
+    views: 0,
+    likes: 0,
+    saves: 0,
     featured: false,
     trendData: {
       source: "gnews",
@@ -61,9 +61,9 @@ const mockArticles = [
     createdAt: new Date(Date.now() - 7200000).toISOString(),
     tags: ["Digital", "Business", "Transformation", "Technology"],
     readTime: 7,
-    views: 1800,
-    likes: 124,
-    saves: 56,
+    views: 0,
+    likes: 0,
+    saves: 0,
     featured: false,
     trendData: {
       source: "gnews",

@@ -43,13 +43,6 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const [isLiking, setIsLiking] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
-  useEffect(() => {
-    // Add to recently viewed when component mounts
-    if (article._id) {
-      addToRecentlyViewed(article._id)
-    }
-  }, [article._id, addToRecentlyViewed])
-
   const handleLike = async () => {
     if (!session) {
       toast({
@@ -64,8 +57,25 @@ export function ArticleContent({ article }: ArticleContentProps) {
 
     setIsLiking(true)
     try {
+      // Update local state first for immediate feedback
       const newLikedState = await likeArticle(article._id)
-      setLocalLikes((prev) => (newLikedState ? prev + 1 : prev - 1))
+
+      // Call backend API to update actual like count
+      const response = await fetch(`/api/articles/like/${article._id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: session.user?.email,
+          action: newLikedState ? "like" : "unlike",
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setLocalLikes(data.likes)
+      }
 
       toast({
         title: newLikedState ? "Article liked!" : "Like removed",
@@ -96,8 +106,25 @@ export function ArticleContent({ article }: ArticleContentProps) {
 
     setIsSaving(true)
     try {
+      // Update local state first for immediate feedback
       const newSavedState = await saveArticle(article._id)
-      setLocalSaves((prev) => (newSavedState ? prev + 1 : prev - 1))
+
+      // Call backend API to update actual save count
+      const response = await fetch(`/api/articles/save/${article._id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: session.user?.email,
+          action: newSavedState ? "save" : "unsave",
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setLocalSaves(data.saves)
+      }
 
       toast({
         title: newSavedState ? "Article saved!" : "Save removed",
@@ -113,6 +140,30 @@ export function ArticleContent({ article }: ArticleContentProps) {
       setIsSaving(false)
     }
   }
+
+  useEffect(() => {
+    // Track article view when component mounts
+    const trackView = async () => {
+      try {
+        await fetch(`/api/articles/view/${article._id}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: session?.user?.email || "anonymous",
+          }),
+        })
+      } catch (error) {
+        console.error("Failed to track view:", error)
+      }
+    }
+
+    if (article._id) {
+      addToRecentlyViewed(article._id)
+      trackView()
+    }
+  }, [article._id, addToRecentlyViewed, session?.user?.email])
 
   const handleShare = async () => {
     if (navigator.share) {

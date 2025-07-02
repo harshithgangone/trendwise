@@ -365,9 +365,14 @@ class TrendBot {
 
       console.log(`✅ [TrendBot] AI content generated: ${aiContent.content.length} characters`)
 
-      let thumbnail = trend.image || null
-      if (!thumbnail) {
-        console.log(`🖼️ [TrendBot] Fetching image for: "${trend.title?.substring(0, 30)}..."`)
+      // Use GNews image first, then fallback to Unsplash, then placeholder
+      let thumbnail = null
+
+      if (trend.image) {
+        thumbnail = trend.image
+        console.log(`✅ [TrendBot] Using GNews image: ${thumbnail}`)
+      } else {
+        console.log(`🖼️ [TrendBot] No GNews image, fetching from Unsplash for: "${trend.title?.substring(0, 30)}..."`)
         try {
           const imageResult = await UnsplashService.searchImages(trend.title, 1)
           if (imageResult.success && imageResult.images.length > 0) {
@@ -375,35 +380,40 @@ class TrendBot {
             console.log(`✅ [TrendBot] Found Unsplash image: ${thumbnail}`)
           }
         } catch (imageError) {
-          console.log(`⚠️ [TrendBot] Image fetch failed, using placeholder: ${imageError.message}`)
+          console.log(`⚠️ [TrendBot] Image fetch failed: ${imageError.message}`)
         }
-      } else {
-        console.log(`✅ [TrendBot] Using GNews image: ${thumbnail}`)
+      }
+
+      // If no image found, use placeholder
+      if (!thumbnail) {
+        thumbnail = `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(trend.title)}`
+        console.log(`📷 [TrendBot] Using placeholder image`)
       }
 
       console.log(`🐦 [TrendBot] Generating tweets for: "${trend.title?.substring(0, 30)}..."`)
-      const tweets = await GroqService.generateTweetContent(trend.title, 5)
+      const tweets = await TweetScraper.generateTweetContent(trend.title, 5)
 
       const articleData = {
         title: trend.title,
         slug: this.generateSlug(trend.title),
         excerpt: trend.description || aiContent.excerpt || "Latest trending news and updates",
         content: aiContent.content,
-        thumbnail: thumbnail || `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(trend.title)}`,
+        thumbnail: thumbnail,
         tags: trend.tags || aiContent.tags || ["trending", "news"],
         category: trend.category || "General",
         readTime: this.calculateReadTime(aiContent.content),
-        featured: Math.random() < 0.2,
+        featured: Math.random() < 0.2, // 20% chance of being featured
         trendScore: trend.score || Math.floor(Math.random() * 50) + 50,
-        views: Math.floor(Math.random() * 1000) + 100,
-        likes: Math.floor(Math.random() * 100) + 10,
-        saves: Math.floor(Math.random() * 50) + 5,
+        // Start with zero engagement - only real user interactions count
+        views: 0,
+        likes: 0,
+        saves: 0,
         source: {
           name: trend.source || "TrendWise AI",
           url: trend.url || "https://trendwise.com",
         },
         media: {
-          images: thumbnail ? [{ url: thumbnail, alt: trend.title }] : [],
+          images: thumbnail && !thumbnail.includes("placeholder.svg") ? [{ url: thumbnail, alt: trend.title }] : [],
           videos: [],
           tweets: tweets || [],
         },
@@ -422,6 +432,10 @@ class TrendBot {
       await article.save()
 
       console.log(`✅ [TrendBot] Article saved successfully with ID: ${article._id}`)
+      console.log(`🖼️ [TrendBot] Article thumbnail: ${article.thumbnail}`)
+      console.log(
+        `📊 [TrendBot] Initial engagement: ${article.views} views, ${article.likes} likes, ${article.saves} saves`,
+      )
       return article
     } catch (error) {
       console.error(`❌ [TrendBot] Failed to generate article for "${trend.title}":`, error)
@@ -561,9 +575,14 @@ class TrendBot {
           console.log(`🤖 [TREND BOT] Generating AI content for: "${trend.title?.substring(0, 50)}..."`)
           const aiContent = await GroqService.generateArticleContent(trend)
 
-          let thumbnail = trend.image || null
-          if (!thumbnail) {
-            console.log(`🖼️ [TREND BOT] Fetching image for: "${trend.title?.substring(0, 30)}..."`)
+          console.log(`🖼️ [TREND BOT] Processing image for: "${trend.title?.substring(0, 30)}..."`)
+          let thumbnail = null
+
+          if (trend.image) {
+            thumbnail = trend.image
+            console.log(`✅ [TREND BOT] Using GNews image: ${thumbnail}`)
+          } else {
+            console.log(`🖼️ [TREND BOT] No GNews image, fetching from Unsplash...`)
             try {
               const imageResult = await UnsplashService.searchImages(trend.title, 1)
               if (imageResult.success && imageResult.images.length > 0) {
@@ -571,37 +590,38 @@ class TrendBot {
                 console.log(`✅ [TREND BOT] Found Unsplash image: ${thumbnail}`)
               }
             } catch (imageError) {
-              console.log(`⚠️ [TREND BOT] Image fetch failed, using placeholder: ${imageError.message}`)
+              console.log(`⚠️ [TREND BOT] Image fetch failed: ${imageError.message}`)
             }
-          } else {
-            console.log(`✅ [TREND BOT] Using GNews image: ${thumbnail}`)
           }
 
-          console.log(`🐦 [TREND BOT] Generating tweets for: "${trend.title?.substring(0, 30)}..."`)
-          const tweets = await GroqService.generateTweetContent(trend.title, 5)
+          if (!thumbnail) {
+            thumbnail = `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(trend.title)}`
+            console.log(`📷 [TREND BOT] Using placeholder image`)
+          }
 
           const articleData = {
             title: trend.title,
             slug: this.generateSlug(trend.title),
             excerpt: trend.description || aiContent.excerpt || "Latest trending news and updates",
             content: aiContent.content,
-            thumbnail: thumbnail || `/placeholder.svg?height=400&width=600&text=${encodeURIComponent(trend.title)}`,
+            thumbnail: thumbnail,
             tags: trend.tags || aiContent.tags || ["trending", "news"],
             category: trend.category || "General",
             readTime: this.calculateReadTime(aiContent.content),
             featured: Math.random() < 0.2,
             trendScore: trend.score || Math.floor(Math.random() * 50) + 50,
-            views: Math.floor(Math.random() * 1000) + 100,
-            likes: Math.floor(Math.random() * 100) + 10,
-            saves: Math.floor(Math.random() * 50) + 5,
+            // Real engagement starts at zero
+            views: 0,
+            likes: 0,
+            saves: 0,
             source: {
               name: trend.source || "TrendWise AI",
               url: trend.url || "https://trendwise.com",
             },
             media: {
-              images: thumbnail ? [{ url: thumbnail, alt: trend.title }] : [],
+              images: thumbnail && !thumbnail.includes("placeholder.svg") ? [{ url: thumbnail, alt: trend.title }] : [],
               videos: [],
-              tweets: tweets || [],
+              tweets: [],
             },
             seo: aiContent.seo || {
               metaTitle: trend.title.substring(0, 60),

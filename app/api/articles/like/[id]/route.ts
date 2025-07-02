@@ -1,48 +1,38 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { id } = params
-    const body = await request.json()
-    const { increment } = body
+    const session = await getServerSession(authOptions)
 
-    // Try to update backend first
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
-    try {
-      const response = await fetch(`${backendUrl}/api/articles/like/${id}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ increment }),
-        signal: AbortSignal.timeout(5000),
-      })
+    const articleId = params.id
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
-      if (response.ok) {
-        const data = await response.json()
-        return NextResponse.json(data)
-      } else {
-        throw new Error(`Backend responded with status: ${response.status}`)
-      }
-    } catch (backendError) {
-      console.log("⚠️ [FRONTEND API] Backend not available for like operation:", backendError.message)
+    // Call backend API to increment like count
+    const response = await fetch(`${backendUrl}/api/articles/${articleId}/like`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId: session.user?.email,
+        action: "like",
+      }),
+    })
 
-      // Return mock response if backend is down
-      return NextResponse.json({
-        success: true,
-        likes: increment ? 1 : 0,
-        liked: increment,
-      })
+    if (response.ok) {
+      const data = await response.json()
+      return NextResponse.json(data)
+    } else {
+      throw new Error("Failed to update like count")
     }
   } catch (error) {
-    console.error("❌ [FRONTEND API] Error in like API route:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to update like",
-      },
-      { status: 500 },
-    )
+    console.error("Error updating like:", error)
+    return NextResponse.json({ error: "Failed to update like" }, { status: 500 })
   }
 }

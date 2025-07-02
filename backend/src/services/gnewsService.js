@@ -147,6 +147,7 @@ class GNewsService {
       if (response.data && response.data.articles) {
         const processedArticles = response.data.articles.map((article, index) => {
           console.log(`🔄 [GNEWS SERVICE] Processing article ${index + 1}: "${article.title?.substring(0, 50)}..."`)
+          console.log(`🖼️ [GNEWS SERVICE] Image URL: ${article.image || "No image"}`)
 
           return {
             title: article.title || "Untitled Article",
@@ -154,7 +155,7 @@ class GNewsService {
             url: article.url,
             publishedAt: article.publishedAt || new Date().toISOString(),
             source: article.source?.name || "GNews",
-            image: article.image || null, // Use the actual image from GNews API
+            image: article.image, // Use the actual image URL from GNews API
             category: this.categorizeArticle(article.title + " " + (article.description || "")),
             tags: this.extractTags(article.title + " " + (article.description || "")),
             score: this.calculateTrendScore(article),
