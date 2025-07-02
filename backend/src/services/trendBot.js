@@ -1,9 +1,9 @@
 const cron = require("node-cron")
-const TrendCrawler = require("./trendCrawler")
-const GroqService = require("./groqService")
-const GNewsService = require("./gnewsService")
-const UnsplashService = require("./unsplashService")
+const trendCrawler = require("./trendCrawler")
+const groqService = require("./groqService")
+const unsplashService = require("./unsplashService")
 const Article = require("../models/Article")
+const slugify = require("slugify")
 
 class TrendBot {
   constructor() {
@@ -21,23 +21,43 @@ class TrendBot {
     }
 
     // Initialize services
-    this.trendCrawler = new TrendCrawler()
-    this.groqService = new GroqService()
-    this.gnewsService = new GNewsService()
-    this.unsplashService = new UnsplashService()
+    this.trendCrawler = trendCrawler
+    this.groqService = groqService
+    this.unsplashService = unsplashService
 
     // Configuration
     this.config = {
-      interval: "*/5 * * * *", // Every 5 minutes
-      maxArticlesPerRun: 3,
+      interval: "0 */6 * * *", // Every 6 hours
+      maxArticlesPerRun: 5,
       minArticleLength: 800,
       maxArticleLength: 2000,
-      categories: ["technology", "business", "health", "science"],
+      categories: ["technology", "business", "health", "science", "entertainment"],
       retryAttempts: 3,
       retryDelay: 5000,
+      sources: ["gnews", "reddit", "trends"],
     }
 
     console.log("🤖 [TrendBot] Initialized with configuration:", this.config)
+  }
+
+  // Calculate next run time manually
+  calculateNextRun() {
+    const now = new Date()
+    const nextRun = new Date(now)
+
+    // For "0 */6 * * *" (every 6 hours at minute 0)
+    // Find the next 6-hour interval
+    const currentHour = now.getHours()
+    const nextHour = Math.ceil((currentHour + 1) / 6) * 6
+
+    if (nextHour >= 24) {
+      nextRun.setDate(nextRun.getDate() + 1)
+      nextRun.setHours(0, 0, 0, 0)
+    } else {
+      nextRun.setHours(nextHour, 0, 0, 0)
+    }
+
+    return nextRun
   }
 
   // Start the automated bot
@@ -50,11 +70,15 @@ class TrendBot {
 
       console.log("🚀 [TrendBot] Starting automated content generation...")
 
+      // Calculate next run time
+      this.nextRun = this.calculateNextRun()
+
       // Schedule the cron job
       this.job = cron.schedule(
         this.config.interval,
         async () => {
           if (!this.isRunning) {
+            console.log("⏰ [TrendBot] Scheduled run triggered")
             await this.runContentGeneration()
           } else {
             console.log("⏳ [TrendBot] Previous run still in progress, skipping...")
@@ -70,8 +94,9 @@ class TrendBot {
       this.isActive = true
 
       console.log("✅ [TrendBot] Bot started successfully")
-      console.log(`⏰ [TrendBot] Scheduled to run every 5 minutes`)
+      console.log(`⏰ [TrendBot] Scheduled to run every 6 hours`)
       console.log(`📊 [TrendBot] Will generate up to ${this.config.maxArticlesPerRun} articles per run`)
+      console.log(`⏰ [TrendBot] Next scheduled run: ${this.nextRun.toISOString()}`)
 
       return {
         success: true,
@@ -102,6 +127,15 @@ class TrendBot {
       }
 
       this.isActive = false
+      this.nextRun = null
+
+      // Cleanup resources
+      try {
+        await this.trendCrawler.cleanup()
+        console.log("🧹 [TrendBot] Resources cleaned up")
+      } catch (error) {
+        console.warn("⚠️ [TrendBot] Cleanup warning:", error.message)
+      }
 
       console.log("✅ [TrendBot] Bot stopped successfully")
       return { success: true, message: "TrendBot stopped successfully" }
@@ -111,7 +145,7 @@ class TrendBot {
     }
   }
 
-  // Run content generation manually
+  // Run content generation manually or scheduled
   async runContentGeneration() {
     const startTime = Date.now()
     this.isRunning = true
@@ -165,6 +199,9 @@ class TrendBot {
       const runTime = Date.now() - startTime
       this.updateRunStatistics(runTime, true)
 
+      // Update next run time
+      this.nextRun = this.calculateNextRun()
+
       console.log(`🎉 [TrendBot] Content generation completed successfully!`)
       console.log(`📊 [TrendBot] Generated ${generatedArticles.length} articles in ${runTime}ms`)
       console.log(`📈 [TrendBot] Total articles generated: ${this.stats.articlesGenerated}`)
@@ -200,7 +237,7 @@ class TrendBot {
     const checks = [
       { name: "TrendCrawler", service: this.trendCrawler },
       { name: "GroqService", service: this.groqService },
-      { name: "GNewsService", service: this.gnewsService },
+      { name: "UnsplashService", service: this.unsplashService },
     ]
 
     for (const check of checks) {
@@ -223,30 +260,68 @@ class TrendBot {
 
     try {
       // Primary source: Enhanced trends from crawler
-      let trends = await this.trendCrawler.getEnhancedTrends()
-      console.log(`📊 [TrendBot] Fetched ${trends.length} trends from TrendCrawler`)
+      let trends = await this.trendCrawler.crawlTrends()
+      console.log(`📊 [TrendBot] Fetched ${trends.trends?.length || 0} trends from TrendCrawler`)
 
-      // Secondary source: GNews if primary fails or returns few results
-      if (trends.length < 5) {
-        console.log("🔄 [TrendBot] Fetching additional trends from GNews...")
-        try {
-          const gnewsTrends = await this.gnewsService.fetchTrendingNews()
-          trends = [...trends, ...gnewsTrends]
-          console.log(`📊 [TrendBot] Added ${gnewsTrends.length} trends from GNews`)
-        } catch (error) {
-          console.warn("⚠️ [TrendBot] GNews fetch failed:", error.message)
-        }
+      if (trends.success && trends.trends) {
+        const uniqueTrends = this.removeDuplicateTrends(trends.trends)
+        console.log(`🎯 [TrendBot] Final unique trends count: ${uniqueTrends.length}`)
+        return uniqueTrends
+      } else {
+        console.warn("⚠️ [TrendBot] TrendCrawler failed, using fallback trends")
+        return this.generateFallbackTrends()
       }
-
-      // Remove duplicates
-      const uniqueTrends = this.removeDuplicateTrends(trends)
-      console.log(`🎯 [TrendBot] Final unique trends count: ${uniqueTrends.length}`)
-
-      return uniqueTrends
     } catch (error) {
       console.error("❌ [TrendBot] Failed to fetch trending topics:", error.message)
-      throw error
+      return this.generateFallbackTrends()
     }
+  }
+
+  // Generate fallback trends when primary sources fail
+  generateFallbackTrends() {
+    console.log("🔄 [TrendBot] Generating fallback trends...")
+    
+    const fallbackTrends = [
+      {
+        title: "Latest Technology Innovations Transforming Industries",
+        description: "Exploring the cutting-edge technologies that are reshaping various industries and creating new opportunities for businesses and consumers alike.",
+        category: "technology",
+        keywords: ["technology", "innovation", "digital transformation", "AI", "automation"],
+        source: "Fallback",
+        publishedAt: new Date(),
+        thumbnail: "/placeholder.svg?height=400&width=600",
+        excerpt: "Technology continues to evolve at an unprecedented pace, bringing revolutionary changes across industries.",
+        tags: ["technology", "innovation", "business", "digital"],
+        readTime: 5,
+      },
+      {
+        title: "Sustainable Business Practices Gaining Momentum",
+        description: "Companies worldwide are adopting sustainable practices to reduce environmental impact while maintaining profitability and growth.",
+        category: "business",
+        keywords: ["sustainability", "business", "environment", "green technology", "ESG"],
+        source: "Fallback",
+        publishedAt: new Date(),
+        thumbnail: "/placeholder.svg?height=400&width=600",
+        excerpt: "Sustainability is becoming a core business strategy for companies looking to future-proof their operations.",
+        tags: ["business", "sustainability", "environment", "strategy"],
+        readTime: 4,
+      },
+      {
+        title: "Health and Wellness Trends Shaping Consumer Behavior",
+        description: "The growing focus on health and wellness is influencing consumer choices and creating new market opportunities across various sectors.",
+        category: "health",
+        keywords: ["health", "wellness", "lifestyle", "consumer behavior", "trends"],
+        source: "Fallback",
+        publishedAt: new Date(),
+        thumbnail: "/placeholder.svg?height=400&width=600",
+        excerpt: "Health consciousness is driving significant changes in how consumers make purchasing decisions.",
+        tags: ["health", "wellness", "lifestyle", "consumer"],
+        readTime: 4,
+      },
+    ]
+
+    console.log(`✅ [TrendBot] Generated ${fallbackTrends.length} fallback trends`)
+    return fallbackTrends
   }
 
   // Remove duplicate trends based on title similarity
@@ -332,12 +407,15 @@ class TrendBot {
       console.log(`✅ [TrendBot] AI content generated: ${articleContent.content.length} characters`)
 
       // Step 2: Get featured image
-      let featuredImage = null
-      try {
-        featuredImage = await this.unsplashService.searchImage(trend.keywords[0] || trend.title)
-        console.log(`🖼️ [TrendBot] Featured image found: ${featuredImage?.url || "none"}`)
-      } catch (error) {
-        console.warn(`⚠️ [TrendBot] Failed to get featured image:`, error.message)
+      let featuredImage = trend.thumbnail
+      if (!featuredImage || featuredImage.includes("placeholder")) {
+        try {
+          featuredImage = await this.unsplashService.getFeaturedImage(trend.keywords[0] || trend.title)
+          console.log(`🖼️ [TrendBot] Featured image found: ${featuredImage}`)
+        } catch (error) {
+          console.warn(`⚠️ [TrendBot] Failed to get featured image:`, error.message)
+          featuredImage = "/placeholder.svg?height=400&width=600"
+        }
       }
 
       // Step 3: Create article object
@@ -357,9 +435,9 @@ class TrendBot {
           images: featuredImage
             ? [
                 {
-                  url: featuredImage.url,
-                  alt: featuredImage.alt || articleContent.title,
-                  caption: featuredImage.caption || "",
+                  url: featuredImage,
+                  alt: articleContent.title,
+                  caption: "",
                 },
               ]
             : [],
@@ -367,8 +445,8 @@ class TrendBot {
           tweets: [],
         },
         seo: {
-          metaTitle: articleContent.metaTitle || articleContent.title,
-          metaDescription: articleContent.metaDescription || articleContent.excerpt,
+          metaTitle: articleContent.meta?.title || articleContent.title,
+          metaDescription: articleContent.meta?.description || articleContent.excerpt,
           keywords: trend.keywords.join(", "),
           ogTitle: articleContent.title,
           ogDescription: articleContent.excerpt || trend.description.substring(0, 160),
@@ -382,10 +460,16 @@ class TrendBot {
         status: "published",
         publishedAt: new Date(),
         source: {
-          originalUrl: trend.link,
+          originalUrl: trend.link || "#",
           originalTitle: trend.title,
           publishedAt: trend.publishedAt,
         },
+        thumbnail: featuredImage,
+        readTime: articleContent.readTime || Math.ceil(articleContent.content.length / 200),
+        featured: false,
+        views: 0,
+        likes: 0,
+        saves: 0,
       }
 
       // Step 4: Save to database
@@ -401,13 +485,11 @@ class TrendBot {
 
   // Generate URL-friendly slug
   generateSlug(title) {
-    return title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .trim("-")
-      .substring(0, 60)
+    return slugify(title, {
+      lower: true,
+      strict: true,
+      remove: /[*+~.()'"!:@]/g,
+    }).substring(0, 60)
   }
 
   // Update run statistics
@@ -438,13 +520,19 @@ class TrendBot {
   // Get next scheduled run time
   getNextRunTime() {
     if (!this.isActive || !this.job) return null
+    return this.nextRun
+  }
 
-    // Calculate next run based on cron schedule (every 5 minutes)
-    const now = new Date()
-    const nextRun = new Date(now)
-    nextRun.setMinutes(Math.ceil(now.getMinutes() / 5) * 5, 0, 0)
-
-    return nextRun
+  // Trigger manual run
+  async triggerManualRun() {
+    console.log("🎯 [TrendBot] Manual run triggered")
+    const result = await this.runContentGeneration()
+    return {
+      success: result.success,
+      message: result.success ? "Manual run completed successfully" : `Manual run failed: ${result.error}`,
+      timestamp: new Date().toISOString(),
+      ...result,
+    }
   }
 
   // Get bot status and statistics
@@ -457,6 +545,17 @@ class TrendBot {
       nextRun: this.getNextRunTime(),
       uptime: process.uptime(),
       memory: process.memoryUsage(),
+      crawlerStatus: this.trendCrawler.getStatus(),
+    }
+  }
+
+  // Get detailed statistics
+  getStats() {
+    return {
+      ...this.stats,
+      successRate: this.stats.totalRuns > 0 ? (this.stats.successfulRuns / this.stats.totalRuns) * 100 : 0,
+      failureRate: this.stats.totalRuns > 0 ? (this.stats.failedRuns / this.stats.totalRuns) * 100 : 0,
+      articlesPerRun: this.stats.totalRuns > 0 ? this.stats.articlesGenerated / this.stats.totalRuns : 0,
     }
   }
 
@@ -477,4 +576,8 @@ class TrendBot {
   }
 }
 
-module.exports = TrendBot
+// Create and export a single instance
+const trendBotInstance = new TrendBot()
+
+// Export the instance directly
+module.exports = trendBotInstance
