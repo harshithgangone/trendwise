@@ -32,21 +32,32 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
 
         // Ensure proper article structure
         if (data.article) {
-          data.article = {
-            ...data.article,
+          const article = {
+            _id: data.article._id,
+            title: data.article.title || "Untitled Article",
+            slug: data.article.slug || slug,
+            content:
+              data.article.content ||
+              `<h2>Content Loading</h2><p>This article content is being processed. Please refresh the page.</p>`,
+            excerpt: data.article.excerpt || "Article excerpt not available.",
+            thumbnail: data.article.thumbnail || data.article.imageUrl || "/placeholder.svg?height=400&width=600",
+            author: data.article.author || "TrendWise AI",
+            createdAt: data.article.createdAt || new Date().toISOString(),
+            readTime: data.article.readTime || 5,
             views: data.article.views || 0,
             likes: data.article.likes || 0,
             saves: data.article.saves || 0,
-            thumbnail: data.article.thumbnail || data.article.imageUrl || "/placeholder.svg?height=400&width=600",
-            author: data.article.author || "TrendWise AI",
-            readTime: data.article.readTime || 5,
-            content:
-              data.article.content ||
-              `<h2>Article Content</h2><p>The content for "${data.article.title}" is currently being processed by our AI system. Please check back shortly for the complete article.</p>`,
+            category: data.article.category || "General",
+            tags: data.article.tags || [],
+            featured: data.article.featured || false,
+            trending: data.article.trending || false,
           }
-        }
 
-        return NextResponse.json(data)
+          return NextResponse.json({
+            success: true,
+            article: article,
+          })
+        }
       } else {
         console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status} for slug: ${slug}`)
         throw new Error(`Backend error: ${response.status}`)
@@ -54,28 +65,32 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     } catch (backendError) {
       console.log(`⚠️ [FRONTEND API] Backend unavailable for article ${slug}, using fallback`)
 
-      // Create a fallback article based on the slug
+      // Create a fallback article with actual content
       const fallbackArticle = {
         _id: `fallback-${slug}`,
         title: slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
         slug: slug,
-        excerpt:
-          "This article is currently being processed by our AI system. Please check back shortly for the complete content.",
+        excerpt: "This article is currently being processed by our AI system.",
         content: `
-          <h2>${slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</h2>
-          <p>We're currently processing this article with our AI-powered content system. The article will be available shortly with comprehensive information on this topic.</p>
-          
-          <h3>What's Happening?</h3>
-          <p>Our TrendBot is working to:</p>
-          <ul>
-            <li>Gather the latest information on this topic</li>
-            <li>Generate comprehensive, accurate content</li>
-            <li>Add relevant images and media</li>
-            <li>Ensure the content meets our quality standards</li>
-          </ul>
-          
-          <h3>Please Try Again</h3>
-          <p>Refresh this page in a few minutes to see the complete article, or browse our other trending content while you wait.</p>
+          <div class="article-content">
+            <h1>${slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</h1>
+            
+            <p>We're currently processing this article with our AI-powered content system. The article will be available shortly with comprehensive information on this topic.</p>
+            
+            <h2>What's Happening?</h2>
+            <p>Our TrendBot is working to:</p>
+            <ul>
+              <li>Gather the latest information on this topic</li>
+              <li>Generate comprehensive, accurate content</li>
+              <li>Add relevant images and media</li>
+              <li>Ensure the content meets our quality standards</li>
+            </ul>
+            
+            <h2>Please Try Again</h2>
+            <p>Refresh this page in a few minutes to see the complete article, or browse our other trending content while you wait.</p>
+            
+            <p><strong>Thank you for your patience as we work to bring you the best AI-generated content!</strong></p>
+          </div>
         `,
         category: "General",
         tags: ["Loading", "AI Processing"],

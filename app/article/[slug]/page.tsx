@@ -12,7 +12,12 @@ interface ArticlePageProps {
 
 async function getArticle(slug: string) {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    console.log(`🔍 [ARTICLE PAGE] Fetching article: ${slug}`)
+
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+
     const response = await fetch(`${baseUrl}/api/articles/${slug}`, {
       cache: "no-store",
       headers: {
@@ -21,14 +26,16 @@ async function getArticle(slug: string) {
     })
 
     if (!response.ok) {
-      console.error(`Failed to fetch article: ${response.status} ${response.statusText}`)
+      console.error(`❌ [ARTICLE PAGE] Failed to fetch article: ${response.status} ${response.statusText}`)
       return null
     }
 
-    const article = await response.json()
-    return article
+    const data = await response.json()
+    console.log(`✅ [ARTICLE PAGE] Successfully fetched article: ${data.article?.title}`)
+
+    return data.article
   } catch (error) {
-    console.error("Error fetching article:", error)
+    console.error("❌ [ARTICLE PAGE] Error fetching article:", error)
     return null
   }
 }
@@ -45,12 +52,11 @@ export async function generateMetadata({ params }: ArticlePageProps) {
 
   return {
     title: `${article.title} - TrendWise`,
-    description:
-      article.meta?.description || article.excerpt || "Read the latest trending news and insights on TrendWise.",
-    keywords: article.meta?.keywords || article.tags?.join(", ") || "news, trends, technology",
+    description: article.excerpt || "Read the latest trending news and insights on TrendWise.",
+    keywords: article.tags?.join(", ") || "news, trends, technology",
     openGraph: {
       title: article.title,
-      description: article.meta?.description || article.excerpt,
+      description: article.excerpt,
       type: "article",
       publishedTime: article.createdAt,
       authors: [article.author || "TrendWise AI"],
@@ -66,7 +72,7 @@ export async function generateMetadata({ params }: ArticlePageProps) {
     twitter: {
       card: "summary_large_image",
       title: article.title,
-      description: article.meta?.description || article.excerpt,
+      description: article.excerpt,
       images: [article.thumbnail || "/placeholder.svg?height=630&width=1200"],
     },
   }
@@ -76,8 +82,11 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   const article = await getArticle(params.slug)
 
   if (!article) {
+    console.log(`❌ [ARTICLE PAGE] Article not found: ${params.slug}`)
     notFound()
   }
+
+  console.log(`📄 [ARTICLE PAGE] Rendering article: ${article.title}`)
 
   return (
     <div className="min-h-screen bg-white">
