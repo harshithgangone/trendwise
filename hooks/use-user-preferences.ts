@@ -1,124 +1,134 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 
-interface UserPreferences {
-  savedArticles: string[]
-  likedArticles: string[]
-  recentlyViewed: string[]
-}
-
-export function useUserPreferences() {
+const useUserPreferences = () => {
   const { data: session } = useSession()
-  const [preferences, setPreferences] = useState<UserPreferences>({
-    savedArticles: [],
-    likedArticles: [],
-    recentlyViewed: [],
-  })
+  const [likedArticles, setLikedArticles] = useState<string[]>([])
+  const [savedArticles, setSavedArticles] = useState<string[]>([])
 
-  // Load preferences from localStorage on mount
   useEffect(() => {
-    if (session?.user?.email) {
-      const stored = localStorage.getItem(`user_preferences_${session.user.email}`)
-      if (stored) {
-        try {
-          const parsedPreferences = JSON.parse(stored)
-          // Ensure all arrays exist
-          setPreferences({
-            savedArticles: parsedPreferences.savedArticles || [],
-            likedArticles: parsedPreferences.likedArticles || [],
-            recentlyViewed: parsedPreferences.recentlyViewed || [],
-          })
-        } catch (error) {
-          console.error("Error parsing stored preferences:", error)
-          // Set default preferences if parsing fails
-          setPreferences({
-            savedArticles: [],
-            likedArticles: [],
-            recentlyViewed: [],
-          })
+    const fetchUserPreferences = async () => {
+      if (!session?.user?.email) return
+
+      try {
+        const response = await fetch(`/api/user/preferences?userId=${session.user.email}`)
+        if (response.ok) {
+          const data = await response.json()
+          setLikedArticles(data.likedArticles || [])
+          setSavedArticles(data.savedArticles || [])
         }
+      } catch (error) {
+        console.error("Error fetching user preferences:", error)
       }
     }
+
+    fetchUserPreferences()
   }, [session?.user?.email])
 
-  // Save preferences to localStorage whenever they change
-  const savePreferences = (newPreferences: UserPreferences) => {
-    if (session?.user?.email) {
-      localStorage.setItem(`user_preferences_${session.user.email}`, JSON.stringify(newPreferences))
-      setPreferences(newPreferences)
-    }
-  }
+  const isArticleLiked = useCallback(
+    (articleId: string) => {
+      return likedArticles.includes(articleId)
+    },
+    [likedArticles],
+  )
 
-  const saveArticle = async (articleId: string) => {
-    const isCurrentlySaved = preferences.savedArticles.includes(articleId)
-    const newSaved = isCurrentlySaved
-      ? preferences.savedArticles.filter((id) => id !== articleId)
-      : [...preferences.savedArticles, articleId]
+  const isArticleSaved = useCallback(
+    (articleId: string) => {
+      return savedArticles.includes(articleId)
+    },
+    [savedArticles],
+  )
 
-    savePreferences({
-      ...preferences,
-      savedArticles: newSaved,
-    })
+  const likeArticle = useCallback(
+    async (articleId: string): Promise<boolean> => {
+      if (!session?.user?.email) return false
 
-    // Call backend to update saves count
-    try {
-      await fetch(`/api/articles/save/${articleId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ increment: !isCurrentlySaved }),
-      })
-    } catch (error) {
-      console.error("Failed to update saves count on backend:", error)
-    }
+      try {
+        const currentlyLiked = isArticleLiked(articleId)
+        const action = currentlyLiked ? "unlike" : "like"
 
-    return !isCurrentlySaved // Return new state
-  }
+        const response = await fetch(`/api/articles/${articleId}/like`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: session.user.email,
+            action: action,
+          }),
+        })
 
-  const likeArticle = async (articleId: string) => {
-    const isCurrentlyLiked = preferences.likedArticles.includes(articleId)
-    const newLiked = isCurrentlyLiked
-      ? preferences.likedArticles.filter((id) => id !== articleId)
-      : [...preferences.likedArticles, articleId]
+        if (response.ok) {
+          const data = await response.json()
+          const newLikedState = data.isLiked
 
-    savePreferences({
-      ...preferences,
-      likedArticles: newLiked,
-    })
+          if (newLikedState) {
+            setLikedArticles((prev) => [...prev.filter((id) => id !== articleId), articleId])
+          } else {
+            setLikedArticles((prev) => prev.filter((id) => id !== articleId))
+          }
 
-    // Call backend to update likes count
-    try {
-      await fetch(`/api/articles/like/${articleId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ increment: !isCurrentlyLiked }),
-      })
-    } catch (error) {
-      console.error("Failed to update likes count on backend:", error)
-    }
+          return newLikedState
+        }
+        return currentlyLiked
+      } catch (error) {
+        console.error("Error liking article:", error)
+        return isArticleLiked(articleId)
+      }
+    },
+    [session?.user?.email, isArticleLiked],
+  )
 
-    return !isCurrentlyLiked // Return new state
-  }
+  const saveArticle = useCallback(
+    async (articleId: string): Promise<boolean> => {
+      if (!session?.user?.email) return false
 
-  const addToRecentlyViewed = (articleId: string) => {
-    const newViewed = [articleId, ...preferences.recentlyViewed.filter((id) => id !== articleId)].slice(0, 10) // Keep last 10
+      try {
+        const currentlySaved = isArticleSaved(articleId)
+        const action = currentlySaved ? "unsave" : "save"
 
-    savePreferences({
-      ...preferences,
-      recentlyViewed: newViewed,
-    })
-  }
+        const response = await fetch(`/api/articles/${articleId}/save`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            userId: session.user.email,
+            action: action,
+          }),
+        })
 
-  const isArticleSaved = (articleId: string) => preferences.savedArticles.includes(articleId)
-  const isArticleLiked = (articleId: string) => preferences.likedArticles.includes(articleId)
+        if (response.ok) {
+          const data = await response.json()
+          const newSavedState = data.isSaved
+
+          if (newSavedState) {
+            setSavedArticles((prev) => [...prev.filter((id) => id !== articleId), articleId])
+          } else {
+            setSavedArticles((prev) => prev.filter((id) => id !== articleId))
+          }
+
+          return newSavedState
+        }
+        return currentlySaved
+      } catch (error) {
+        console.error("Error saving article:", error)
+        return isArticleSaved(articleId)
+      }
+    },
+    [session?.user?.email, isArticleSaved],
+  )
 
   return {
-    preferences,
-    saveArticle,
-    likeArticle,
-    addToRecentlyViewed,
-    isArticleSaved,
+    likedArticles,
+    savedArticles,
     isArticleLiked,
+    isArticleSaved,
+    likeArticle,
+    saveArticle,
   }
 }
+
+export default useUserPreferences

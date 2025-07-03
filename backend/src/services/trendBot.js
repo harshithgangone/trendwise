@@ -1,6 +1,7 @@
 const mongoose = require("mongoose")
 const Article = require("../models/Article")
 const { generateArticleContent } = require("./groqService")
+const groqService = require("./groqService")
 const { fetchGNewsArticles } = require("./gnewsService")
 const { getUnsplashImage } = require("./unsplashService")
 const slugify = require("slugify")
@@ -105,14 +106,6 @@ class TrendBot {
       const articleCount = await Article.countDocuments()
       console.log(`📊 Database health check: ${articleCount} articles in database`)
 
-      // Check if we have required environment variables
-      const requiredEnvVars = ["GNEWS_API_KEY"]
-      const missingVars = requiredEnvVars.filter((varName) => !process.env[varName])
-
-      if (missingVars.length > 0) {
-        console.warn(`⚠️ Missing environment variables: ${missingVars.join(", ")}`)
-      }
-
       return true
     } catch (error) {
       console.error("❌ Health check failed:", error)
@@ -150,8 +143,34 @@ class TrendBot {
 
           console.log(`🔄 Processing: ${newsItem.title.substring(0, 50)}...`)
 
+          // Get featured image - prioritize GNews image, then Unsplash fallback
+          let featuredImage = null
+          let thumbnail = null
+
+          // First try to use the image from GNews API
+          if (newsItem.urlToImage && this.isValidImageUrl(newsItem.urlToImage)) {
+            featuredImage = newsItem.urlToImage
+            thumbnail = newsItem.urlToImage
+            console.log(`🖼️ Using GNews image: ${newsItem.urlToImage.substring(0, 50)}...`)
+          } else if (newsItem.image && this.isValidImageUrl(newsItem.image)) {
+            featuredImage = newsItem.image
+            thumbnail = newsItem.image
+            console.log(`🖼️ Using GNews image: ${newsItem.image.substring(0, 50)}...`)
+          } else {
+            // Fallback to Unsplash
+            const imageQuery = "technology" // Default value
+            const unsplashImage = await getUnsplashImage(imageQuery)
+            featuredImage = unsplashImage
+            thumbnail = unsplashImage
+            console.log(`🖼️ Using Unsplash image for query: ${imageQuery}`)
+          }
+
           // Generate enhanced content using Groq
           const enhancedContent = await generateArticleContent(newsItem)
+
+          // Generate AI tweets for this article
+          console.log(`🐦 Generating tweets for: ${newsItem.title.substring(0, 30)}...`)
+          const aiTweets = await groqService.generateTweetContent(newsItem.title, 5)
 
           // Generate slug with fallbacks
           let slug = this.generateSlug(enhancedContent.title || newsItem.title)
@@ -164,18 +183,6 @@ class TrendBot {
             slugCounter++
           }
 
-          // Get featured image
-          let featuredImage = newsItem.urlToImage
-          if (!featuredImage) {
-            try {
-              const imageQuery = enhancedContent.tags?.[0] || "technology"
-              featuredImage = await getUnsplashImage(imageQuery)
-            } catch (imageError) {
-              console.warn("⚠️ Failed to get Unsplash image:", imageError.message)
-              featuredImage = `https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=400&fit=crop`
-            }
-          }
-
           // Create article object
           const articleData = {
             title: enhancedContent.title || newsItem.title,
@@ -183,6 +190,7 @@ class TrendBot {
             content: enhancedContent.content || this.generateFallbackContent(newsItem),
             excerpt: enhancedContent.excerpt || newsItem.description?.substring(0, 200) + "...",
             featuredImage: featuredImage,
+            thumbnail: thumbnail, // Store thumbnail separately
             category: this.categorizeArticle(newsItem.title + " " + (newsItem.description || "")),
             tags: enhancedContent.tags || this.extractTags(newsItem.title + " " + (newsItem.description || "")),
             author: "TrendBot AI",
@@ -206,7 +214,15 @@ class TrendBot {
             trending: true,
             trendScore: this.calculateTrendScore(newsItem),
             aiGenerated: true,
-            tweets: enhancedContent.tweets || [],
+            // Store tweets in both places for compatibility
+            tweets: aiTweets || [],
+            media: {
+              images: featuredImage ? [featuredImage] : [],
+              videos: [],
+              tweets: aiTweets || [],
+            },
+            // Add Twitter search URL
+            twitterSearchUrl: `https://twitter.com/search?q=${encodeURIComponent(newsItem.title)}&src=typed_query&f=live`,
           }
 
           // Save to database
@@ -214,6 +230,8 @@ class TrendBot {
           await article.save()
 
           console.log(`✅ Article created: ${article.title.substring(0, 50)}... (${article.slug})`)
+          console.log(`🖼️ Image: ${thumbnail ? "Yes" : "No"}`)
+          console.log(`🐦 Tweets: ${aiTweets.length}`)
           articlesGenerated++
 
           // Add delay between articles to avoid overwhelming the system
@@ -229,6 +247,32 @@ class TrendBot {
       console.error("❌ Error generating articles:", error)
       return 0
     }
+  }
+
+  isValidImageUrl(url) {
+    if (!url || typeof url !== "string") return false
+
+    // Check if it's a valid URL
+    try {
+      new URL(url)
+    } catch {
+      return false
+    }
+
+    // Check if it's an image URL
+    const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"]
+    const lowerUrl = url.toLowerCase()
+
+    // Check for image extensions or common image hosting patterns
+    return (
+      imageExtensions.some((ext) => lowerUrl.includes(ext)) ||
+      lowerUrl.includes("image") ||
+      lowerUrl.includes("img") ||
+      lowerUrl.includes("photo") ||
+      url.startsWith("https://images.") ||
+      url.includes("unsplash.com") ||
+      url.includes("pexels.com")
+    )
   }
 
   generateSlug(title) {
@@ -342,14 +386,13 @@ class TrendBot {
     else if (hoursAgo < 24) score += 10
 
     // Articles with images get bonus
-    if (article.urlToImage) score += 10
+    if (article.urlToImage || article.image) score += 10
 
     // Longer descriptions get bonus
     if (article.description && article.description.length > 100) score += 5
 
     // Source reputation bonus
     if (article.source?.name && !article.source.name.includes("Unknown")) score += 5
-
     return Math.min(100, score)
   }
 

@@ -1,39 +1,19 @@
 const mongoose = require("mongoose")
 
-const tweetSchema = new mongoose.Schema({
-  username: {
-    type: String,
-    required: true,
-  },
-  handle: {
-    type: String,
-    required: true,
-  },
-  text: {
-    type: String,
-    required: true,
-  },
-  link: {
-    type: String,
-    required: true,
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now,
-  },
-})
-
 const articleSchema = new mongoose.Schema(
   {
     title: {
       type: String,
       required: true,
       trim: true,
+      maxlength: 200,
     },
     slug: {
       type: String,
       required: true,
       unique: true,
+      trim: true,
+      lowercase: true,
     },
     content: {
       type: String,
@@ -42,10 +22,21 @@ const articleSchema = new mongoose.Schema(
     excerpt: {
       type: String,
       required: true,
+      maxlength: 500,
+    },
+    featuredImage: {
+      type: String,
+      default: null,
     },
     thumbnail: {
       type: String,
-      default: "/placeholder.svg?height=400&width=600",
+      default: null,
+    },
+    category: {
+      type: String,
+      required: true,
+      enum: ["Technology", "Business", "Health", "Science", "Environment", "Sports", "Entertainment", "General"],
+      default: "General",
     },
     tags: [
       {
@@ -53,15 +44,28 @@ const articleSchema = new mongoose.Schema(
         trim: true,
       },
     ],
-    meta: {
-      title: String,
-      description: String,
-      keywords: String,
+    author: {
+      type: String,
+      required: true,
+      default: "TrendBot AI",
     },
-    media: {
-      images: [String],
-      videos: [String],
-      tweets: [tweetSchema], // Proper schema for tweet objects
+    status: {
+      type: String,
+      enum: ["draft", "published", "archived"],
+      default: "draft",
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+    },
+    source: {
+      name: String,
+      url: String,
+    },
+    seo: {
+      metaTitle: String,
+      metaDescription: String,
+      keywords: String,
     },
     readTime: {
       type: Number,
@@ -75,40 +79,97 @@ const articleSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    saves: {
+    shares: {
       type: Number,
       default: 0,
     },
-    status: {
-      type: String,
-      enum: ["draft", "published"],
-      default: "published",
-    },
-    trendData: {
-      source: String,
-      originalQuery: String,
-      trendScore: Number,
-      searchVolume: String,
-      geo: String,
-    },
-    featured: {
+    comments: [
+      {
+        author: String,
+        content: String,
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    trending: {
       type: Boolean,
       default: false,
     },
-    author: {
+    trendScore: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+    aiGenerated: {
+      type: Boolean,
+      default: false,
+    },
+    tweets: [
+      {
+        username: String,
+        handle: String,
+        text: String,
+        link: String,
+        timestamp: String,
+        engagement: {
+          likes: Number,
+          retweets: Number,
+          replies: Number,
+        },
+      },
+    ],
+    media: {
+      images: [String],
+      videos: [String],
+      tweets: [
+        {
+          username: String,
+          handle: String,
+          text: String,
+          link: String,
+          timestamp: String,
+          engagement: {
+            likes: Number,
+            retweets: Number,
+            replies: Number,
+          },
+        },
+      ],
+    },
+    twitterSearchUrl: {
       type: String,
-      default: "TrendWise AI",
+      default: null,
     },
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   },
 )
 
-// Index for search and performance
-articleSchema.index({ title: "text", content: "text", tags: "text" })
-articleSchema.index({ createdAt: -1 })
-articleSchema.index({ views: -1 })
-articleSchema.index({ "trendData.trendScore": -1 })
+// Indexes for better performance
+articleSchema.index({ slug: 1 })
+articleSchema.index({ status: 1, publishedAt: -1 })
+articleSchema.index({ category: 1, status: 1 })
+articleSchema.index({ trending: 1, trendScore: -1 })
+articleSchema.index({ tags: 1 })
+articleSchema.index({ title: "text", content: "text" })
+
+// Virtual for URL
+articleSchema.virtual("url").get(function () {
+  return `/article/${this.slug}`
+})
+
+// Pre-save middleware
+articleSchema.pre("save", function (next) {
+  if (this.status === "published" && !this.publishedAt) {
+    this.publishedAt = new Date()
+  }
+  next()
+})
 
 module.exports = mongoose.model("Article", articleSchema)
