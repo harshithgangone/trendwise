@@ -145,24 +145,24 @@ class TrendBot {
 
           // Get featured image - prioritize GNews image, then Unsplash fallback
           let featuredImage = null
-          let thumbnail = null
 
           // First try to use the image from GNews API
           if (newsItem.urlToImage && this.isValidImageUrl(newsItem.urlToImage)) {
             featuredImage = newsItem.urlToImage
-            thumbnail = newsItem.urlToImage
             console.log(`🖼️ Using GNews image: ${newsItem.urlToImage.substring(0, 50)}...`)
           } else if (newsItem.image && this.isValidImageUrl(newsItem.image)) {
             featuredImage = newsItem.image
-            thumbnail = newsItem.image
             console.log(`🖼️ Using GNews image: ${newsItem.image.substring(0, 50)}...`)
           } else {
             // Fallback to Unsplash
-            const imageQuery = "technology" // Default value
-            const unsplashImage = await getUnsplashImage(imageQuery)
-            featuredImage = unsplashImage
-            thumbnail = unsplashImage
-            console.log(`🖼️ Using Unsplash image for query: ${imageQuery}`)
+            const imageQuery = "technology" // Default value before enhancedContent is defined
+            try {
+              featuredImage = await getUnsplashImage(imageQuery)
+              console.log(`🖼️ Using Unsplash image for query: ${imageQuery}`)
+            } catch (imageError) {
+              console.warn("⚠️ Failed to get Unsplash image:", imageError.message)
+              featuredImage = `https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&h=400&fit=crop`
+            }
           }
 
           // Generate enhanced content using Groq
@@ -190,7 +190,7 @@ class TrendBot {
             content: enhancedContent.content || this.generateFallbackContent(newsItem),
             excerpt: enhancedContent.excerpt || newsItem.description?.substring(0, 200) + "...",
             featuredImage: featuredImage,
-            thumbnail: thumbnail, // Store thumbnail separately
+            thumbnail: featuredImage, // Store thumbnail separately
             category: this.categorizeArticle(newsItem.title + " " + (newsItem.description || "")),
             tags: enhancedContent.tags || this.extractTags(newsItem.title + " " + (newsItem.description || "")),
             author: "TrendBot AI",
@@ -230,7 +230,7 @@ class TrendBot {
           await article.save()
 
           console.log(`✅ Article created: ${article.title.substring(0, 50)}... (${article.slug})`)
-          console.log(`🖼️ Image: ${thumbnail ? "Yes" : "No"}`)
+          console.log(`🖼️ Image: ${featuredImage ? "Yes" : "No"}`)
           console.log(`🐦 Tweets: ${aiTweets.length}`)
           articlesGenerated++
 
