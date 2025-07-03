@@ -253,16 +253,3 @@ class GNewsService {
 // Create and export singleton instance
 const gnewsService = new GNewsService()
 module.exports = gnewsService
-
-// Also export the functions for backward compatibility
-module.exports.fetchGNewsArticles = async (query, max = 10) => {
-  return await gnewsService.searchNews(query, max)
-}
-
-module.exports.getTrendingTopics = async (limit = 10) => {
-  return await gnewsService.getTrendingTopics(limit)
-}
-
-module.exports.testConnection = async () => {
-  return await gnewsService.testConnection()
-}

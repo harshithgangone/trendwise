@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
     console.log(`📊 [FRONTEND API] Query params: ${queryString}`)
     console.log(`🔗 [FRONTEND API] Backend URL: ${BACKEND_URL}`)
 
-    // Build the backend URL
-    const backendUrl = `${BACKEND_URL}/articles${queryString ? `?${queryString}` : ""}`
+    // Build the backend URL - note the correct path
+    const backendUrl = `${BACKEND_URL}/api/articles${queryString ? `?${queryString}` : ""}`
     console.log(`📡 [FRONTEND API] Fetching from: ${backendUrl}`)
 
     // Forward request to backend with timeout
