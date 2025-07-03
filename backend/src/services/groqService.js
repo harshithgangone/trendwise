@@ -1,22 +1,14 @@
-const axios = require("axios")
 const Groq = require("groq-sdk")
-
-// Hardcode the API key at the module level for prototyping
-const GROQ_API_KEY = "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"
-
-const groq = new Groq({
-  apiKey: GROQ_API_KEY,
-})
 
 class GroqService {
   constructor() {
-    // Hardcode the API key for prototyping as requested
-    this.apiKey = GROQ_API_KEY
-    this.baseUrl = "https://api.groq.com/openai/v1"
-    this.model = "llama-3.1-8b-instant" // Updated to use supported model
-    this.requestTimeout = 30000 // 30 seconds
+    // Use the working API key
+    this.apiKey = "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"
+    this.model = "llama-3.1-8b-instant"
+    this.requestTimeout = 30000
     this.maxRetries = 3
-    this.rateLimitDelay = 2000 // 2 seconds between requests
+    this.rateLimitDelay = 2000
+
     this.client = new Groq({
       apiKey: this.apiKey,
     })
@@ -27,7 +19,6 @@ class GroqService {
   async generateArticleContent(article) {
     console.log("🤖 [GROQ SERVICE] Starting article content generation...")
     console.log(`📝 [GROQ SERVICE] Article: "${article.title?.substring(0, 50)}..."`)
-    console.log(`🔑 [GROQ SERVICE] API Key: ${this.apiKey ? "Present" : "Missing"}`)
 
     if (!this.apiKey) {
       console.log("⚠️ [GROQ SERVICE] No API key found, using fallback content")
@@ -35,21 +26,38 @@ class GroqService {
     }
 
     try {
-      // Add rate limiting delay
       await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay))
 
       const prompt = this.createArticlePrompt(article)
       console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
 
-      const response = await this.makeGroqRequest(prompt)
+      const completion = await this.client.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional content writer and SEO expert. Create high-quality, engaging content with proper HTML structure.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: this.model,
+        max_tokens: 4000,
+        temperature: 0.7,
+        top_p: 0.9,
+      })
 
-      if (response && response.content) {
-        console.log(`✅ [GROQ SERVICE] Successfully generated ${response.content.length} characters of content`)
+      const content = completion.choices[0]?.message?.content
+
+      if (content) {
+        console.log(`✅ [GROQ SERVICE] Successfully generated ${content.length} characters of content`)
         return {
           success: true,
           title: article.title,
-          content: response.content,
-          excerpt: article.description || this.generateExcerpt(response.content),
+          content: content,
+          excerpt: article.description || this.generateExcerpt(content),
           tags: this.extractTags(article.title, article.description || ""),
           seo: this.generateSEOData(article),
           source: "groq_ai",
@@ -74,7 +82,6 @@ class GroqService {
     }
 
     try {
-      // Add rate limiting delay
       await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay))
 
       const prompt = `Generate ${limit} realistic Twitter-style tweets about "${query}". 
@@ -89,36 +96,59 @@ Requirements:
 
 Respond with ONLY valid JSON in this format:
 {
-  "tweets": [
-    {
-      "username": "TechReporter",
-      "handle": "@techreporter",
-      "text": "Breaking: [tweet content with emojis and hashtags]",
-      "engagement": {
-        "likes": 150,
-        "retweets": 45,
-        "replies": 23
-      }
+"tweets": [
+  {
+    "username": "TechReporter",
+    "handle": "@techreporter",
+    "text": "Breaking: [tweet content with emojis and hashtags]",
+    "engagement": {
+      "likes": 150,
+      "retweets": 45,
+      "replies": 23
     }
-  ]
+  }
+]
 }`
 
-      const response = await this.makeGroqRequest(prompt, "json")
-
-      if (response && response.tweets) {
-        console.log("✅ [GROQ SERVICE] Tweet content generated successfully")
-        return response.tweets.map((tweet, index) => ({
-          username: tweet.username || `User${index + 1}`,
-          handle: tweet.handle || `@user${index + 1}`,
-          text: tweet.text || `Interesting developments in ${query}! 🚀`,
-          link: this.createTwitterSearchUrl(query),
-          timestamp: new Date(Date.now() - index * 3600000).toISOString(),
-          engagement: tweet.engagement || {
-            likes: Math.floor(Math.random() * 500) + 50,
-            retweets: Math.floor(Math.random() * 100) + 10,
-            replies: Math.floor(Math.random() * 50) + 5,
+      const completion = await this.client.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: "You are a social media expert. Always respond with valid JSON format.",
           },
-        }))
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: this.model,
+        max_tokens: 1000,
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+      })
+
+      const content = completion.choices[0]?.message?.content
+
+      if (content) {
+        try {
+          const parsed = JSON.parse(content)
+          console.log("✅ [GROQ SERVICE] Tweet content generated successfully")
+          return parsed.tweets.map((tweet, index) => ({
+            username: tweet.username || `User${index + 1}`,
+            handle: tweet.handle || `@user${index + 1}`,
+            text: tweet.text || `Interesting developments in ${query}! 🚀`,
+            link: this.createTwitterSearchUrl(query),
+            timestamp: new Date(Date.now() - index * 3600000).toISOString(),
+            engagement: tweet.engagement || {
+              likes: Math.floor(Math.random() * 500) + 50,
+              retweets: Math.floor(Math.random() * 100) + 10,
+              replies: Math.floor(Math.random() * 50) + 5,
+            },
+          }))
+        } catch (parseError) {
+          console.error("❌ [GROQ SERVICE] JSON parsing failed:", parseError.message)
+          return this.generateMockTweets(query, limit)
+        }
       }
 
       return this.generateMockTweets(query, limit)
@@ -178,107 +208,6 @@ Respond with ONLY valid JSON in this format:
   createTwitterSearchUrl(query) {
     const encodedQuery = encodeURIComponent(query)
     return `https://twitter.com/search?q=${encodedQuery}&src=typed_query&f=live`
-  }
-
-  async makeGroqRequest(prompt, responseFormat = "text") {
-    console.log("📡 [GROQ SERVICE] Making API request to Groq...")
-    console.log(`📝 [GROQ SERVICE] Prompt summary: ${prompt.substring(0, 100)}...`)
-    console.log(`📊 [GROQ SERVICE] Prompt length: ${prompt.length} characters`)
-
-    const requestData = {
-      model: this.model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a professional content writer and SEO expert. Create high-quality, engaging content with proper HTML structure.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      max_tokens: responseFormat === "json" ? 1000 : 4000,
-      temperature: 0.7,
-      top_p: 0.9,
-    }
-
-    if (responseFormat === "json") {
-      requestData.response_format = { type: "json_object" }
-    }
-
-    console.log(
-      `🔧 [GROQ SERVICE] Request config: Model=${this.model}, MaxTokens=${requestData.max_tokens}, Format=${responseFormat}`,
-    )
-
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
-      try {
-        console.log(`🔄 [GROQ SERVICE] Attempt ${attempt}/${this.maxRetries}`)
-
-        const startTime = Date.now()
-        const response = await axios.post(`${this.baseUrl}/chat/completions`, requestData, {
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: this.requestTimeout,
-        })
-        const endTime = Date.now()
-        const duration = endTime - startTime
-
-        console.log(`📈 [GROQ SERVICE] API Response Status: ${response.status}`)
-        console.log(`⏱️ [GROQ SERVICE] Request duration: ${duration}ms`)
-
-        if (response.data && response.data.choices && response.data.choices[0]) {
-          const content = response.data.choices[0].message.content
-          console.log(`📄 [GROQ SERVICE] Response content length: ${content.length} characters`)
-
-          if (responseFormat === "json") {
-            try {
-              const parsed = JSON.parse(content)
-              console.log("✅ [GROQ SERVICE] JSON response parsed successfully")
-              return parsed
-            } catch (parseError) {
-              console.error("❌ [GROQ SERVICE] JSON parsing failed:", parseError.message)
-              throw new Error("Invalid JSON response from API")
-            }
-          } else {
-            return { content }
-          }
-        }
-
-        throw new Error("No content in API response")
-      } catch (error) {
-        console.error(`❌ [GROQ SERVICE] Attempt ${attempt} failed:`, error.message)
-
-        if (error.response) {
-          console.error(`📊 [GROQ SERVICE] API Error Status: ${error.response.status}`)
-          console.error(`📊 [GROQ SERVICE] API Error Data: ${JSON.stringify(error.response.data || {})}`)
-
-          // Don't retry on certain errors
-          if (error.response.status === 401 || error.response.status === 403) {
-            console.error(`🔑 [GROQ SERVICE] Authentication error - check API key`)
-            throw new Error("Authentication failed - check API key")
-          }
-
-          // Rate limit handling
-          if (error.response.status === 429) {
-            const waitTime = attempt * 5000 // Longer wait for rate limits
-            console.log(`⏳ [GROQ SERVICE] Rate limited, waiting ${waitTime}ms...`)
-            await new Promise((resolve) => setTimeout(resolve, waitTime))
-            continue
-          }
-        }
-
-        if (attempt === this.maxRetries) {
-          throw error
-        }
-
-        const waitTime = attempt * 2000
-        console.log(`⏳ [GROQ SERVICE] Waiting ${waitTime}ms before retry...`)
-        await new Promise((resolve) => setTimeout(resolve, waitTime))
-      }
-    }
   }
 
   createArticlePrompt(article) {
@@ -409,50 +338,33 @@ Focus on providing value to readers while maintaining readability and SEO best p
     try {
       console.log("📡 [GROQ SERVICE] Testing API connection...")
 
-      const response = await axios.post(
-        `${this.baseUrl}/chat/completions`,
-        {
-          model: this.model,
-          messages: [{ role: "user", content: "Hello, this is a connection test." }],
-          max_tokens: 10,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        },
-      )
+      const completion = await this.client.chat.completions.create({
+        messages: [{ role: "user", content: "Hello, this is a connection test." }],
+        model: this.model,
+        max_tokens: 10,
+      })
 
       console.log("✅ [GROQ SERVICE] Connection test successful")
       return {
         success: true,
         model: this.model,
-        status: response.status,
+        status: "connected",
       }
     } catch (error) {
       console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
 
-      const errorDetails = { error: error.message }
-      if (error.response) {
-        errorDetails.status = error.response.status
-        errorDetails.statusText = error.response.statusText
-      }
-
       return {
         success: false,
         fallbackAvailable: true,
-        ...errorDetails,
+        error: error.message,
       }
     }
   }
 
   generateExcerpt(content) {
-    // Remove HTML tags and get first 160 characters
     const plainText = content
       .replace(/<[^>]*>/g, "")
-      .replace(/\n+/g, " ")
+      .replace(/\s+/g, " ")
       .trim()
     return plainText.length > 160 ? plainText.substring(0, 157) + "..." : plainText
   }
@@ -490,7 +402,6 @@ Focus on providing value to readers while maintaining readability and SEO best p
     return {
       apiKey: this.apiKey ? "configured" : "missing",
       model: this.model,
-      baseUrl: this.baseUrl,
       timeout: this.requestTimeout,
       maxRetries: this.maxRetries,
       rateLimitDelay: this.rateLimitDelay,
@@ -498,13 +409,13 @@ Focus on providing value to readers while maintaining readability and SEO best p
   }
 }
 
-// Create a singleton instance with the hardcoded API key
+// Create a singleton instance
 const groqServiceInstance = new GroqService()
 
 // Export both the class and the instance
 module.exports = groqServiceInstance
 
-// Also export the generateArticleContent function directly
+// Also export the generateArticleContent function directly for backward compatibility
 async function generateArticleContent(newsItem) {
   try {
     console.log(`🤖 [GROQ] Generating content for: ${newsItem.title.substring(0, 50)}...`)
@@ -540,7 +451,7 @@ Format your response as JSON:
 }
 `
 
-    const completion = await groq.chat.completions.create({
+    const completion = await groqServiceInstance.client.chat.completions.create({
       messages: [
         {
           role: "system",
@@ -551,7 +462,7 @@ Format your response as JSON:
           content: prompt,
         },
       ],
-      model: "llama-3.1-8b-instant", // Updated to use supported model
+      model: "llama-3.1-8b-instant",
       temperature: 0.7,
       max_tokens: 4000,
       response_format: { type: "json_object" },
