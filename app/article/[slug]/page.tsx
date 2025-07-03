@@ -14,6 +14,7 @@ async function getArticle(slug: string) {
   try {
     console.log(`🔍 [ARTICLE PAGE] Fetching article: ${slug}`)
 
+    // Use the correct base URL for the API call
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
