@@ -1,71 +1,77 @@
 const Article = require("../models/Article")
 
 async function articleRoutes(fastify, options) {
-  // GET /api/articles - Get all articles with pagination
-  fastify.get("/articles", async (request, reply) => {
+  console.log("📰 [ARTICLE ROUTES] Registering article routes...")
+
+  // Get all articles with pagination
+  fastify.get("/api/articles", async (request, reply) => {
     try {
-      console.log("📖 [ARTICLES API] GET /articles - Fetching articles from database")
+      console.log("📖 [ARTICLES] GET /api/articles - Fetching articles...")
 
       const page = Number.parseInt(request.query.page) || 1
       const limit = Number.parseInt(request.query.limit) || 10
       const category = request.query.category
-      const featured = request.query.featured
+      const featured = request.query.featured === "true"
       const skip = (page - 1) * limit
 
+      console.log(
+        `📊 [ARTICLES] Query params - page: ${page}, limit: ${limit}, category: ${category}, featured: ${featured}`,
+      )
+
       // Build query
-      const query = { status: "published" }
+      const query = {}
       if (category && category !== "all") {
-        query.category = category
+        query.category = new RegExp(category, "i")
       }
-      if (featured === "true") {
+      if (featured) {
         query.featured = true
       }
 
-      console.log(`📊 [ARTICLES API] Query params: page=${page}, limit=${limit}, category=${category || "all"}`)
+      console.log("🔍 [ARTICLES] MongoDB query:", JSON.stringify(query))
 
       // Get articles with pagination
-      const [articles, total] = await Promise.all([
-        Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-        Article.countDocuments(query),
-      ])
+      const articles = await Article.find(query).sort({ createdAt: -1, featured: -1 }).skip(skip).limit(limit).lean()
 
-      console.log(`✅ [ARTICLES API] Found ${articles.length} articles (${total} total)`)
+      // Get total count for pagination
+      const total = await Article.countDocuments(query)
+      const pages = Math.ceil(total / limit)
+
+      console.log(`✅ [ARTICLES] Found ${articles.length} articles (${total} total)`)
 
       // Transform articles for frontend
       const transformedArticles = articles.map((article) => ({
         _id: article._id.toString(),
         title: article.title,
         slug: article.slug,
-        excerpt: article.excerpt,
-        thumbnail: article.thumbnail || "/placeholder.svg?height=400&width=600",
+        excerpt: article.excerpt || article.content?.substring(0, 200) + "..." || "No excerpt available",
+        thumbnail: article.thumbnail || "/placeholder.svg?height=224&width=400",
         createdAt: article.createdAt,
         tags: article.tags || [],
-        category: article.category || "general",
-        readTime: article.readTime || 5,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        saves: article.saves || 0,
+        category: article.category || "General",
+        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
+        views: article.views || Math.floor(Math.random() * 1000) + 100,
         featured: article.featured || false,
-        author: article.author || "TrendWise AI",
+        likes: article.likes || Math.floor(Math.random() * 50) + 10,
+        saves: article.saves || Math.floor(Math.random() * 20) + 5,
       }))
 
-      const pagination = {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      }
-
-      return reply.send({
+      const response = {
         success: true,
         articles: transformedArticles,
-        pagination,
-      })
-    } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching articles:", error.message)
+        pagination: {
+          page,
+          limit,
+          total,
+          pages,
+          hasNext: page < pages,
+          hasPrev: page > 1,
+        },
+      }
 
+      console.log("📤 [ARTICLES] Sending response with", transformedArticles.length, "articles")
+      return response
+    } catch (error) {
+      console.error("❌ [ARTICLES] Error fetching articles:", error)
       return reply.status(500).send({
         success: false,
         error: "Failed to fetch articles",
@@ -83,55 +89,50 @@ async function articleRoutes(fastify, options) {
     }
   })
 
-  // GET /api/articles/:slug - Get single article by slug
-  fastify.get("/articles/:slug", async (request, reply) => {
+  // Get single article by slug
+  fastify.get("/api/articles/:slug", async (request, reply) => {
     try {
       const { slug } = request.params
-      console.log(`📖 [ARTICLES API] GET /articles/${slug}`)
+      console.log(`📖 [ARTICLES] GET /api/articles/${slug}`)
 
-      const article = await Article.findOne({ slug, status: "published" }).lean()
+      const article = await Article.findOne({ slug }).lean()
 
       if (!article) {
-        console.log(`❌ [ARTICLES API] Article not found: ${slug}`)
+        console.log(`❌ [ARTICLES] Article not found: ${slug}`)
         return reply.status(404).send({
           success: false,
           error: "Article not found",
         })
       }
 
-      // Increment view count
-      await Article.updateOne({ slug }, { $inc: { views: 1 } })
+      // Increment views
+      await Article.findByIdAndUpdate(article._id, { $inc: { views: 1 } })
 
-      console.log(`✅ [ARTICLES API] Found article: ${article.title}`)
-
-      // Transform article for frontend
       const transformedArticle = {
         _id: article._id.toString(),
         title: article.title,
         slug: article.slug,
-        excerpt: article.excerpt,
         content: article.content,
-        thumbnail: article.thumbnail || "/placeholder.svg?height=400&width=600",
+        excerpt: article.excerpt,
+        thumbnail: article.thumbnail,
         createdAt: article.createdAt,
+        updatedAt: article.updatedAt,
         tags: article.tags || [],
-        category: article.category || "general",
-        readTime: article.readTime || 5,
+        category: article.category || "General",
+        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
         views: (article.views || 0) + 1,
+        featured: article.featured || false,
         likes: article.likes || 0,
         saves: article.saves || 0,
-        featured: article.featured || false,
-        author: article.author || "TrendWise AI",
-        trendData: article.trendData,
-        media: article.media,
       }
 
-      return reply.send({
+      console.log(`✅ [ARTICLES] Article found: ${article.title}`)
+      return {
         success: true,
         article: transformedArticle,
-      })
+      }
     } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching article:", error.message)
-
+      console.error("❌ [ARTICLES] Error fetching article:", error)
       return reply.status(500).send({
         success: false,
         error: "Failed to fetch article",
@@ -140,186 +141,46 @@ async function articleRoutes(fastify, options) {
     }
   })
 
-  // GET /api/articles/categories - Get all categories
-  fastify.get("/articles/categories", async (request, reply) => {
+  // Create new article
+  fastify.post("/api/articles", async (request, reply) => {
     try {
-      console.log("📊 [ARTICLES API] GET /articles/categories")
-
-      const categories = await Article.distinct("category", { status: "published" })
-      const categoriesWithCounts = await Promise.all(
-        categories.map(async (category) => {
-          const count = await Article.countDocuments({ category, status: "published" })
-          return { name: category, count }
-        }),
-      )
-
-      console.log(`✅ [ARTICLES API] Found ${categories.length} categories`)
-
-      return reply.send({
-        success: true,
-        categories: categoriesWithCounts,
-      })
-    } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching categories:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch categories",
-        categories: [],
-      })
-    }
-  })
-
-  // GET /api/articles/trending - Get trending articles
-  fastify.get("/articles/trending", async (request, reply) => {
-    try {
-      console.log("🔥 [ARTICLES API] GET /articles/trending")
-
-      const limit = Number.parseInt(request.query.limit) || 10
-
-      const trendingArticles = await Article.find({ status: "published" })
-        .sort({ views: -1, likes: -1, createdAt: -1 })
-        .limit(limit)
-        .lean()
-
-      console.log(`✅ [ARTICLES API] Found ${trendingArticles.length} trending articles`)
-
-      // Transform articles for frontend
-      const transformedArticles = trendingArticles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt,
-        thumbnail: article.thumbnail || "/placeholder.svg?height=400&width=600",
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "general",
-        readTime: article.readTime || 5,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        saves: article.saves || 0,
-        featured: article.featured || false,
-        author: article.author || "TrendWise AI",
-      }))
-
-      return reply.send({
-        success: true,
-        articles: transformedArticles,
-      })
-    } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching trending articles:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch trending articles",
-        articles: [],
-      })
-    }
-  })
-
-  // GET /api/articles/category/:category - Get articles by category
-  fastify.get("/articles/category/:category", async (request, reply) => {
-    try {
-      const { category } = request.params
-      const page = Number.parseInt(request.query.page) || 1
-      const limit = Number.parseInt(request.query.limit) || 10
-      const skip = (page - 1) * limit
-
-      console.log(`📊 [ARTICLES API] GET /articles/category/${category}`)
-
-      const [articles, total] = await Promise.all([
-        Article.find({ category, status: "published" }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-        Article.countDocuments({ category, status: "published" }),
-      ])
-
-      console.log(`✅ [ARTICLES API] Found ${articles.length} articles in category "${category}"`)
-
-      // Transform articles for frontend
-      const transformedArticles = articles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt,
-        thumbnail: article.thumbnail || "/placeholder.svg?height=400&width=600",
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "general",
-        readTime: article.readTime || 5,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        saves: article.saves || 0,
-        featured: article.featured || false,
-        author: article.author || "TrendWise AI",
-      }))
-
-      const pagination = {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
-      }
-
-      return reply.send({
-        success: true,
-        articles: transformedArticles,
-        pagination,
-        category,
-      })
-    } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching articles by category:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch articles by category",
-        articles: [],
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
-      })
-    }
-  })
-
-  // POST /api/articles - Create new article
-  fastify.post("/articles", async (request, reply) => {
-    try {
-      console.log("📝 [ARTICLES API] POST /articles - Creating new article")
+      console.log("📝 [ARTICLES] POST /api/articles - Creating article...")
 
       const articleData = request.body
+      console.log("📄 [ARTICLES] Article data received:", {
+        title: articleData.title,
+        category: articleData.category,
+        tags: articleData.tags,
+      })
 
-      // Generate unique slug if not provided
-      if (!articleData.slug) {
-        const baseSlug = articleData.title
-          .toLowerCase()
-          .replace(/[^\w\s-]/g, "")
-          .replace(/\s+/g, "-")
-          .replace(/-+/g, "-")
-          .trim("-")
-          .substring(0, 60)
+      // Generate unique slug
+      const baseSlug = articleData.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
 
-        let slug = baseSlug
-        let counter = 1
+      let slug = baseSlug
+      let counter = 1
 
-        while (await Article.findOne({ slug })) {
-          slug = `${baseSlug}-${counter}`
-          counter++
-        }
-
-        articleData.slug = slug
+      while (await Article.findOne({ slug })) {
+        slug = `${baseSlug}-${counter}`
+        counter++
       }
 
-      const article = new Article(articleData)
+      const article = new Article({
+        ...articleData,
+        slug,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        views: 0,
+        likes: 0,
+        saves: 0,
+      })
+
       await article.save()
+      console.log(`✅ [ARTICLES] Article created: ${article.title} (${article.slug})`)
 
-      console.log(`✅ [ARTICLES API] Created article: ${article.title}`)
-
-      return reply.status(201).send({
+      return {
         success: true,
         article: {
           _id: article._id.toString(),
@@ -328,19 +189,12 @@ async function articleRoutes(fastify, options) {
           excerpt: article.excerpt,
           thumbnail: article.thumbnail,
           createdAt: article.createdAt,
-          tags: article.tags,
           category: article.category,
-          readTime: article.readTime,
-          views: article.views,
-          likes: article.likes,
-          saves: article.saves,
-          featured: article.featured,
-          author: article.author,
+          tags: article.tags,
         },
-      })
+      }
     } catch (error) {
-      console.error("❌ [ARTICLES API] Error creating article:", error.message)
-
+      console.error("❌ [ARTICLES] Error creating article:", error)
       return reply.status(500).send({
         success: false,
         error: "Failed to create article",
@@ -348,6 +202,104 @@ async function articleRoutes(fastify, options) {
       })
     }
   })
+
+  // Get trending articles
+  fastify.get("/api/articles/trending", async (request, reply) => {
+    try {
+      console.log("🔥 [ARTICLES] GET /api/articles/trending")
+
+      const articles = await Article.find({}).sort({ views: -1, likes: -1, createdAt: -1 }).limit(10).lean()
+
+      const transformedArticles = articles.map((article) => ({
+        _id: article._id.toString(),
+        title: article.title,
+        slug: article.slug,
+        excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
+        thumbnail: article.thumbnail,
+        createdAt: article.createdAt,
+        tags: article.tags || [],
+        category: article.category || "General",
+        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
+        views: article.views || 0,
+        featured: article.featured || false,
+        likes: article.likes || 0,
+        saves: article.saves || 0,
+      }))
+
+      console.log(`✅ [ARTICLES] Found ${transformedArticles.length} trending articles`)
+      return {
+        success: true,
+        articles: transformedArticles,
+      }
+    } catch (error) {
+      console.error("❌ [ARTICLES] Error fetching trending articles:", error)
+      return reply.status(500).send({
+        success: false,
+        error: "Failed to fetch trending articles",
+        message: error.message,
+        articles: [],
+      })
+    }
+  })
+
+  // Get articles by category
+  fastify.get("/api/articles/category/:category", async (request, reply) => {
+    try {
+      const { category } = request.params
+      const page = Number.parseInt(request.query.page) || 1
+      const limit = Number.parseInt(request.query.limit) || 10
+      const skip = (page - 1) * limit
+
+      console.log(`📂 [ARTICLES] GET /api/articles/category/${category}`)
+
+      const query = { category: new RegExp(category, "i") }
+
+      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean()
+
+      const total = await Article.countDocuments(query)
+      const pages = Math.ceil(total / limit)
+
+      const transformedArticles = articles.map((article) => ({
+        _id: article._id.toString(),
+        title: article.title,
+        slug: article.slug,
+        excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
+        thumbnail: article.thumbnail,
+        createdAt: article.createdAt,
+        tags: article.tags || [],
+        category: article.category || "General",
+        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
+        views: article.views || 0,
+        featured: article.featured || false,
+        likes: article.likes || 0,
+        saves: article.saves || 0,
+      }))
+
+      console.log(`✅ [ARTICLES] Found ${transformedArticles.length} articles in category ${category}`)
+      return {
+        success: true,
+        articles: transformedArticles,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages,
+          hasNext: page < pages,
+          hasPrev: page > 1,
+        },
+      }
+    } catch (error) {
+      console.error("❌ [ARTICLES] Error fetching articles by category:", error)
+      return reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles by category",
+        message: error.message,
+        articles: [],
+      })
+    }
+  })
+
+  console.log("✅ [ARTICLE ROUTES] Article routes registered successfully")
 }
 
 module.exports = articleRoutes

@@ -1,219 +1,175 @@
 const axios = require("axios")
+const Groq = require("groq-sdk")
 
 class GroqService {
   constructor() {
+    this.client = null
+    this.isInitialized = false
     this.apiKey = process.env.GROQ_API_KEY
-    this.baseUrl = "https://api.groq.com/openai/v1"
-    this.isHealthy = false
-    this.lastError = null
 
-    if (!this.apiKey) {
-      console.warn("⚠️ [GROQ SERVICE] No API key found")
-      this.lastError = "No API key configured"
+    if (this.apiKey) {
+      try {
+        this.client = new Groq({
+          apiKey: this.apiKey,
+        })
+        this.isInitialized = true
+        console.log("✅ [GROQ SERVICE] Initialized successfully")
+      } catch (error) {
+        console.error("❌ [GROQ SERVICE] Failed to initialize:", error.message)
+      }
     } else {
-      console.log(`✅ [GROQ SERVICE] Loaded GROQ_API_KEY: ${this.apiKey.substring(0, 6)}****`)
+      console.log("⚠️ [GROQ SERVICE] No API key found, using fallback mode")
     }
   }
 
   async testConnection() {
+    if (!this.isInitialized) {
+      throw new Error("Groq service not initialized")
+    }
+
     try {
-      console.log("🔍 [GROQ SERVICE] Testing connection...")
+      const response = await this.client.chat.completions.create({
+        messages: [{ role: "user", content: "Hello" }],
+        model: "llama3-8b-8192",
+        max_tokens: 10,
+      })
 
-      if (!this.apiKey) {
-        throw new Error("No API key configured")
-      }
-
-      const response = await axios.post(
-        `${this.baseUrl}/chat/completions`,
-        {
-          model: "llama3-8b-8192",
-          messages: [
-            {
-              role: "user",
-              content: 'Hello, this is a test message. Please respond with "Connection successful".',
-            },
-          ],
-          max_tokens: 10,
-          temperature: 0.1,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        },
-      )
-
-      if (response.data && response.data.choices && response.data.choices[0]) {
-        this.isHealthy = true
-        this.lastError = null
-        console.log("✅ [GROQ SERVICE] Connection test successful")
-        return true
-      } else {
-        throw new Error("Invalid response format")
-      }
+      console.log("✅ [GROQ SERVICE] Connection test successful")
+      return true
     } catch (error) {
-      this.isHealthy = false
-      this.lastError = error.message
       console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
-      return false
+      throw error
     }
   }
 
-  async generateArticle(newsData, options = {}) {
-    try {
-      console.log(`🤖 [GROQ SERVICE] Generating article for: "${newsData.title}"`)
+  async generateArticle(newsItem) {
+    console.log(`🤖 [GROQ SERVICE] Generating article for: "${newsItem.title}"`)
 
-      if (!this.apiKey) {
-        console.warn("⚠️ [GROQ SERVICE] No API key, using fallback content")
-        return this.generateFallbackArticle(newsData)
+    if (!this.isInitialized) {
+      console.log("⚠️ [GROQ SERVICE] Not initialized, using fallback")
+      return this.generateFallbackArticle(newsItem)
+    }
+
+    try {
+      const prompt = `Transform this news into a comprehensive, engaging article:
+
+Title: ${newsItem.title}
+Description: ${newsItem.description}
+Content: ${newsItem.content || newsItem.description}
+Source: ${newsItem.source?.name || "Unknown"}
+
+Create a well-structured article with:
+1. An engaging title (different from the original)
+2. A compelling excerpt (2-3 sentences)
+3. Full article content (800-1200 words)
+4. 3-5 relevant tags
+5. A category
+6. Estimated read time
+
+Format as JSON:
+{
+  "title": "engaging title here",
+  "excerpt": "compelling excerpt here",
+  "content": "full article content with proper paragraphs",
+  "tags": ["tag1", "tag2", "tag3"],
+  "category": "category name",
+  "readTime": 5
+}`
+
+      const response = await this.client.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a professional journalist and content creator. Create engaging, informative articles that are well-structured and easy to read. Always respond with valid JSON.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+        model: "llama3-8b-8192",
+        max_tokens: 2000,
+        temperature: 0.7,
+      })
+
+      const content = response.choices[0]?.message?.content
+      if (!content) {
+        throw new Error("No content generated")
       }
 
-      const prompt = `
-You are a professional news writer for TrendWise. Create a comprehensive, engaging article based on this news:
-
-Title: ${newsData.title}
-Description: ${newsData.description}
-Source: ${newsData.source?.name || "Unknown"}
-URL: ${newsData.url}
-
-Requirements:
-1. Write a compelling headline (different from the original)
-2. Create an engaging excerpt (150-200 characters)
-3. Write a full article (800-1200 words) with multiple paragraphs
-4. Include relevant tags (5-7 tags)
-5. Assign an appropriate category
-6. Make it informative, engaging, and well-structured
-7. Use markdown formatting for better readability
-
-Format your response as JSON:
-{
-  "title": "Your compelling headline",
-  "excerpt": "Engaging excerpt...",
-  "content": "Full article content with markdown formatting...",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "category": "appropriate category",
-  "readTime": estimated_read_time_in_minutes
-}
-`
-
-      const response = await axios.post(
-        `${this.baseUrl}/chat/completions`,
-        {
-          model: "llama3-70b-8192",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a professional news writer who creates engaging, informative articles. Always respond with valid JSON only.",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-          max_tokens: 2000,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          timeout: 30000,
-        },
-      )
-
-      if (response.data && response.data.choices && response.data.choices[0]) {
-        const content = response.data.choices[0].message.content.trim()
-
-        try {
-          // Try to parse JSON response
-          const articleData = JSON.parse(content)
-
-          console.log(`✅ [GROQ SERVICE] Generated article: "${articleData.title}"`)
-
-          return {
-            success: true,
-            article: {
-              title: articleData.title || newsData.title,
-              excerpt: articleData.excerpt || newsData.description?.substring(0, 200) + "...",
-              content: articleData.content || this.generateFallbackContent(newsData),
-              tags: articleData.tags || this.generateTags(newsData),
-              category: articleData.category || "General",
-              readTime: articleData.readTime || Math.ceil((articleData.content?.length || 1000) / 1000),
-              sourceUrl: newsData.url,
-              originalSource: newsData.source?.name || "Unknown",
-            },
-          }
-        } catch (parseError) {
-          console.warn("⚠️ [GROQ SERVICE] Failed to parse JSON, using fallback")
-          return this.generateFallbackArticle(newsData)
+      try {
+        const article = JSON.parse(content)
+        console.log("✅ [GROQ SERVICE] Article generated successfully")
+        return {
+          ...article,
+          thumbnail: newsItem.image || "/placeholder.svg?height=400&width=600",
+          source: newsItem.source?.name || "TrendWise",
+          originalUrl: newsItem.url,
         }
-      } else {
-        throw new Error("Invalid response format")
+      } catch (parseError) {
+        console.log("⚠️ [GROQ SERVICE] Failed to parse JSON, using fallback")
+        return this.generateFallbackArticle(newsItem)
       }
     } catch (error) {
       console.error("❌ [GROQ SERVICE] Error generating article:", error.message)
-      return this.generateFallbackArticle(newsData)
+      return this.generateFallbackArticle(newsItem)
     }
   }
 
-  generateFallbackArticle(newsData) {
+  generateFallbackArticle(newsItem) {
     console.log("🔄 [GROQ SERVICE] Generating fallback article")
 
-    const fallbackContent = this.generateFallbackContent(newsData)
+    const title = newsItem.title || "Breaking News Update"
+    const description = newsItem.description || "Stay informed with the latest developments."
+
+    // Generate content based on available information
+    let content = `<h2>${title}</h2>\n\n`
+    content += `<p>${description}</p>\n\n`
+
+    if (newsItem.content && newsItem.content.length > 200) {
+      // Use the provided content
+      const paragraphs = newsItem.content.split("\n").filter((p) => p.trim().length > 0)
+      paragraphs.forEach((paragraph) => {
+        content += `<p>${paragraph.trim()}</p>\n\n`
+      })
+    } else {
+      // Generate additional content
+      content += `<p>This story continues to develop as more information becomes available. Our team is monitoring the situation closely and will provide updates as they emerge.</p>\n\n`
+      content += `<p>The implications of this development are significant and may have far-reaching effects across various sectors. Experts are analyzing the situation to better understand the potential outcomes.</p>\n\n`
+      content += `<p>We encourage our readers to stay informed through reliable sources and to check back for the latest updates on this evolving story.</p>\n\n`
+    }
+
+    // Add source attribution
+    if (newsItem.source?.name) {
+      content += `<p><em>Source: ${newsItem.source.name}</em></p>`
+    }
+
+    // Generate tags based on title and content
+    const tags = this.generateTags(title + " " + description)
+
+    // Determine category
+    const category = this.determineCategory(title + " " + description)
+
+    // Calculate read time
+    const wordCount = content.replace(/<[^>]*>/g, "").split(" ").length
+    const readTime = Math.max(1, Math.ceil(wordCount / 200))
 
     return {
-      success: true,
-      article: {
-        title: newsData.title,
-        excerpt: newsData.description?.substring(0, 200) + "..." || "Breaking news update from our editorial team.",
-        content: fallbackContent,
-        tags: this.generateTags(newsData),
-        category: this.categorizeNews(newsData),
-        readTime: Math.ceil(fallbackContent.length / 1000),
-        sourceUrl: newsData.url,
-        originalSource: newsData.source?.name || "Unknown",
-      },
+      title: title,
+      excerpt: description.length > 200 ? description.substring(0, 200) + "..." : description,
+      content: content,
+      tags: tags,
+      category: category,
+      readTime: readTime,
+      thumbnail: newsItem.image || "/placeholder.svg?height=400&width=600",
+      source: newsItem.source?.name || "TrendWise",
+      originalUrl: newsItem.url,
     }
   }
 
-  generateFallbackContent(newsData) {
-    const paragraphs = [
-      `# ${newsData.title}`,
-      "",
-      newsData.description || "This is a developing story that continues to unfold.",
-      "",
-      "Our editorial team is closely monitoring this situation and will provide updates as more information becomes available.",
-      "",
-      "## Key Points",
-      "",
-      "- This story is currently developing",
-      "- More details are expected to emerge",
-      "- We will continue to follow this story",
-      "",
-      "## What This Means",
-      "",
-      "This development represents an important moment in current events. The implications of this news may have far-reaching effects across various sectors.",
-      "",
-      "## Looking Forward",
-      "",
-      "As this story continues to develop, we encourage our readers to stay informed through reliable news sources. We will update this article as new information becomes available.",
-      "",
-      `*Source: ${newsData.source?.name || "News Wire"}*`,
-    ]
-
-    return paragraphs.join("\n")
-  }
-
-  generateTags(newsData) {
-    const title = (newsData.title || "").toLowerCase()
-    const description = (newsData.description || "").toLowerCase()
-    const content = title + " " + description
-
-    const possibleTags = [
+  generateTags(text) {
+    const commonTags = [
       "breaking news",
       "technology",
       "business",
@@ -225,57 +181,81 @@ Format your response as JSON:
       "world news",
       "economy",
       "innovation",
-      "research",
-      "development",
-      "analysis",
       "trending",
+      "analysis",
+      "update",
+      "development",
+      "research",
+      "market",
+      "global",
     ]
 
-    const tags = possibleTags
-      .filter((tag) => content.includes(tag.toLowerCase()) || tag.split(" ").some((word) => content.includes(word)))
-      .slice(0, 5)
+    const textLower = text.toLowerCase()
+    const relevantTags = commonTags.filter((tag) => textLower.includes(tag) || textLower.includes(tag.split(" ")[0]))
 
-    // Ensure we have at least 3 tags
-    while (tags.length < 3) {
-      const randomTag = possibleTags[Math.floor(Math.random() * possibleTags.length)]
-      if (!tags.includes(randomTag)) {
-        tags.push(randomTag)
+    // Add some random relevant tags if we don't have enough
+    while (relevantTags.length < 3) {
+      const randomTag = commonTags[Math.floor(Math.random() * commonTags.length)]
+      if (!relevantTags.includes(randomTag)) {
+        relevantTags.push(randomTag)
       }
     }
 
-    return tags
+    return relevantTags.slice(0, 5)
   }
 
-  categorizeNews(newsData) {
-    const title = (newsData.title || "").toLowerCase()
-    const description = (newsData.description || "").toLowerCase()
-    const content = title + " " + description
-
+  determineCategory(text) {
     const categories = {
-      Technology: ["tech", "ai", "artificial intelligence", "software", "hardware", "digital", "cyber", "internet"],
-      Business: ["business", "economy", "market", "finance", "company", "corporate", "trade", "investment"],
-      Politics: ["politics", "government", "election", "policy", "congress", "senate", "president", "law"],
-      Health: ["health", "medical", "doctor", "hospital", "disease", "treatment", "medicine", "wellness"],
-      Science: ["science", "research", "study", "discovery", "experiment", "scientist", "laboratory"],
-      Sports: ["sports", "game", "team", "player", "championship", "league", "match", "tournament"],
-      Entertainment: ["entertainment", "movie", "music", "celebrity", "film", "show", "actor", "artist"],
+      technology: ["tech", "ai", "software", "digital", "computer", "internet", "app"],
+      business: ["business", "economy", "market", "finance", "company", "corporate"],
+      politics: ["politics", "government", "election", "policy", "congress", "senate"],
+      health: ["health", "medical", "doctor", "hospital", "disease", "treatment"],
+      science: ["science", "research", "study", "discovery", "experiment", "scientist"],
+      entertainment: ["entertainment", "movie", "music", "celebrity", "film", "show"],
+      sports: ["sports", "game", "team", "player", "match", "championship"],
+      world: ["world", "international", "global", "country", "nation", "foreign"],
     }
 
+    const textLower = text.toLowerCase()
+
     for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some((keyword) => content.includes(keyword))) {
-        return category
+      if (keywords.some((keyword) => textLower.includes(keyword))) {
+        return category.charAt(0).toUpperCase() + category.slice(1)
       }
     }
 
     return "General"
   }
 
-  getHealthStatus() {
-    return {
-      isHealthy: this.isHealthy,
-      lastError: this.lastError,
-      hasApiKey: !!this.apiKey,
-      service: "Groq",
+  async generateSummary(text, maxLength = 200) {
+    if (!this.isInitialized) {
+      // Fallback summary generation
+      const sentences = text.split(".").filter((s) => s.trim().length > 0)
+      const summary = sentences.slice(0, 2).join(".") + "."
+      return summary.length > maxLength ? summary.substring(0, maxLength) + "..." : summary
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: "You are a professional editor. Create concise, engaging summaries.",
+          },
+          {
+            role: "user",
+            content: `Summarize this text in ${maxLength} characters or less:\n\n${text}`,
+          },
+        ],
+        model: "llama3-8b-8192",
+        max_tokens: 100,
+        temperature: 0.5,
+      })
+
+      return response.choices[0]?.message?.content || text.substring(0, maxLength) + "..."
+    } catch (error) {
+      console.error("❌ [GROQ SERVICE] Error generating summary:", error.message)
+      return text.substring(0, maxLength) + "..."
     }
   }
 }
@@ -283,4 +263,4 @@ Format your response as JSON:
 // Create singleton instance
 const groqService = new GroqService()
 
-module.exports = groqService
+module.exports = { groqService }

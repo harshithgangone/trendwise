@@ -1,89 +1,92 @@
-const fastify = require("fastify")({ logger: true })
+const fastify = require("fastify")({ logger: false })
 const mongoose = require("mongoose")
-require("dotenv").config()
+const path = require("path")
 
 // Import routes
-const articlesRoutes = require("./routes/articles")
+const articleRoutes = require("./routes/articles")
 const adminRoutes = require("./routes/admin")
-const commentsRoutes = require("./routes/comments")
-const trendsRoutes = require("./routes/trends")
+const commentRoutes = require("./routes/comments")
+const trendRoutes = require("./routes/trends")
 
-// Register plugins
+// Import services
+const { connectDatabase } = require("./config/database")
+
+// Environment variables
+const PORT = process.env.PORT || 10000
+const HOST = process.env.HOST || "0.0.0.0"
+const NODE_ENV = process.env.NODE_ENV || "development"
+
+console.log("🚀 [Server] Starting TrendWise Backend Server...")
+console.log(`🌍 [Server] Environment: ${NODE_ENV}`)
+console.log(`🔧 [Server] Node.js version: ${process.version}`)
+
+// Register CORS
 fastify.register(require("@fastify/cors"), {
-  origin: [
-    "http://localhost:3000",
-    "https://trendwise-frontend.vercel.app",
-    "https://trendwise.vercel.app",
-    /\.vercel\.app$/,
-  ],
-  credentials: true,
+  origin: ["http://localhost:3000", "https://trendwise-frontend.vercel.app", "https://trendwise.vercel.app"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "User-Agent", "Accept"],
 })
 
-fastify.register(require("@fastify/helmet"), {
-  contentSecurityPolicy: false,
-})
-
-// Database connection
-async function connectDatabase() {
-  try {
-    console.log("🗄️ [Database] Connecting to MongoDB...")
-    await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise")
-    console.log("✅ [Database] Connected to MongoDB successfully")
-  } catch (error) {
-    console.error("❌ [Database] Connection failed:", error)
-    process.exit(1)
-  }
-}
-
-// Register routes - FIXED: Only register each route once
-fastify.register(articlesRoutes, { prefix: "/api" })
-fastify.register(adminRoutes, { prefix: "/api" })
-fastify.register(commentsRoutes, { prefix: "/api" })
-fastify.register(trendsRoutes, { prefix: "/api" })
+// Register JSON parser
+fastify.register(require("@fastify/formbody"))
 
 // Health check endpoint
 fastify.get("/health", async (request, reply) => {
-  return {
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+  try {
+    const dbStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+
+    return {
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      database: dbStatus,
+      version: "1.0.0",
+      environment: NODE_ENV,
+    }
+  } catch (error) {
+    return reply.status(500).send({
+      status: "unhealthy",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    })
   }
 })
 
-// Root endpoint
-fastify.get("/", async (request, reply) => {
-  return {
-    message: "TrendWise Backend API",
-    version: "1.0.0",
-    status: "running",
-    timestamp: new Date().toISOString(),
+// Register routes
+async function registerRoutes() {
+  try {
+    console.log("🔗 [Server] Registering routes...")
+
+    await fastify.register(articleRoutes)
+    await fastify.register(adminRoutes)
+    await fastify.register(commentRoutes)
+    await fastify.register(trendRoutes)
+
+    console.log("✅ [Server] All routes registered successfully")
+  } catch (error) {
+    console.error("❌ [Server] Failed to register routes:", error)
+    throw error
   }
-})
+}
 
 // Start server
-async function start() {
+async function startServer() {
   try {
-    console.log("🚀 [Server] Starting TrendWise Backend Server...")
-    console.log(`🌍 [Server] Environment: ${process.env.NODE_ENV || "development"}`)
-    console.log(`🔧 [Server] Node.js version: ${process.version}`)
-
     // Connect to database
     await connectDatabase()
 
-    // Start server
-    const port = process.env.PORT || 10000
-    const host = process.env.HOST || "0.0.0.0"
+    // Register routes
+    await registerRoutes()
 
-    await fastify.listen({ port, host })
-    console.log(`✅ [Server] Server running on http://${host}:${port}`)
+    // Start listening
+    await fastify.listen({ port: PORT, host: HOST })
+    console.log(`✅ [Server] Server running on http://${HOST}:${PORT}`)
 
     // Start TrendBot after a delay
-    console.log("🤖 [Server] Starting TrendBot...")
     setTimeout(async () => {
       try {
-        const trendBot = require("./services/trendBot")
+        console.log("🤖 [Server] Starting TrendBot...")
+        const { trendBot } = require("./services/trendBot")
+
         if (trendBot && typeof trendBot.start === "function") {
           await trendBot.start()
           console.log("✅ [Server] TrendBot started successfully")
@@ -91,13 +94,13 @@ async function start() {
           console.log("⚠️ [Server] TrendBot not available or start method missing")
         }
       } catch (error) {
-        console.error("❌ [Server] TrendBot failed to start:", error.message)
+        console.error("❌ [Server] Failed to start TrendBot:", error.message)
       }
-    }, 10000)
+    }, 10000) // Start TrendBot after 10 seconds
 
     console.log("🎉 [Server] All systems operational!")
   } catch (error) {
-    console.error("❌ [Server] Failed to start:", error)
+    console.error("❌ [Server] Failed to start:", error.message)
     process.exit(1)
   }
 }
@@ -108,8 +111,10 @@ process.on("SIGTERM", async () => {
   try {
     console.log("🗄️ [Server] Closing database connection...")
     await mongoose.connection.close()
+
     console.log("🚀 [Server] Closing HTTP server...")
     await fastify.close()
+
     console.log("✅ [Server] Graceful shutdown completed")
     process.exit(0)
   } catch (error) {
@@ -121,9 +126,7 @@ process.on("SIGTERM", async () => {
 process.on("SIGINT", async () => {
   console.log("🛑 [Server] Received SIGINT, shutting down gracefully...")
   try {
-    console.log("🗄️ [Server] Closing database connection...")
     await mongoose.connection.close()
-    console.log("🚀 [Server] Closing HTTP server...")
     await fastify.close()
     console.log("✅ [Server] Graceful shutdown completed")
     process.exit(0)
@@ -133,15 +136,29 @@ process.on("SIGINT", async () => {
   }
 })
 
-process.on("uncaughtException", (error) => {
+// Handle uncaught exceptions
+process.on("uncaughtException", async (error) => {
   console.error("❌ [Server] Uncaught Exception:", error)
   console.log("🛑 [Server] Received UNCAUGHT_EXCEPTION, shutting down gracefully...")
-  process.exit(1)
+  try {
+    console.log("🗄️ [Server] Closing database connection...")
+    await mongoose.connection.close()
+
+    console.log("🚀 [Server] Closing HTTP server...")
+    await fastify.close()
+
+    console.log("✅ [Server] Graceful shutdown completed")
+    process.exit(1)
+  } catch (shutdownError) {
+    console.error("❌ [Server] Error during shutdown:", shutdownError)
+    process.exit(1)
+  }
 })
 
+// Handle unhandled promise rejections
 process.on("unhandledRejection", (reason, promise) => {
   console.error("❌ [Server] Unhandled Rejection at:", promise, "reason:", reason)
 })
 
 // Start the server
-start()
+startServer()

@@ -4,175 +4,145 @@ class UnsplashService {
   constructor() {
     this.accessKey = process.env.UNSPLASH_ACCESS_KEY
     this.baseUrl = "https://api.unsplash.com"
-    this.isHealthy = false
-    this.lastError = null
+    this.isInitialized = !!this.accessKey
 
-    if (!this.accessKey) {
-      console.warn("⚠️ [UNSPLASH SERVICE] No access key found")
-      this.lastError = "No access key configured"
+    if (this.isInitialized) {
+      console.log("✅ [UNSPLASH SERVICE] Initialized with access key")
     } else {
-      console.log(`✅ [UNSPLASH SERVICE] Loaded UNSPLASH_ACCESS_KEY: ${this.accessKey.substring(0, 6)}****`)
+      console.log("⚠️ [UNSPLASH SERVICE] No access key found, using fallback mode")
     }
   }
 
   async testConnection() {
+    if (!this.isInitialized) {
+      throw new Error("Unsplash access key not configured")
+    }
+
     try {
-      console.log("🔍 [UNSPLASH SERVICE] Testing connection...")
-
-      if (!this.accessKey) {
-        throw new Error("No access key configured")
-      }
-
-      const response = await axios.get(`${this.baseUrl}/photos`, {
+      const response = await axios.get(`${this.baseUrl}/photos/random`, {
         params: {
-          per_page: 1,
-        },
-        headers: {
-          Authorization: `Client-ID ${this.accessKey}`,
+          client_id: this.accessKey,
+          count: 1,
         },
         timeout: 10000,
       })
 
       if (response.data && Array.isArray(response.data)) {
-        this.isHealthy = true
-        this.lastError = null
         console.log("✅ [UNSPLASH SERVICE] Connection test successful")
         return true
       } else {
         throw new Error("Invalid response format")
       }
     } catch (error) {
-      this.isHealthy = false
-      this.lastError = error.message
       console.error("❌ [UNSPLASH SERVICE] Connection test failed:", error.message)
-      return false
+      throw error
     }
   }
 
-  async searchImage(query, options = {}) {
+  async searchImage(query, orientation = "landscape") {
+    if (!this.isInitialized) {
+      console.log("⚠️ [UNSPLASH SERVICE] API not initialized, using fallback")
+      return this.getFallbackImage(query)
+    }
+
     try {
-      console.log(`🖼️ [UNSPLASH SERVICE] Searching images for: "${query}"`)
-
-      if (!this.accessKey) {
-        console.warn("⚠️ [UNSPLASH SERVICE] No access key, using placeholder")
-        return this.getPlaceholderImage(query)
-      }
-
-      const params = {
-        query: query,
-        per_page: options.count || 1,
-        orientation: options.orientation || "landscape",
-        content_filter: "high",
-      }
+      console.log(`🖼️ [UNSPLASH SERVICE] Searching for image: "${query}"`)
 
       const response = await axios.get(`${this.baseUrl}/search/photos`, {
-        params,
-        headers: {
-          Authorization: `Client-ID ${this.accessKey}`,
+        params: {
+          client_id: this.accessKey,
+          query: query,
+          per_page: 1,
+          orientation: orientation,
+          content_filter: "high",
         },
-        timeout: 10000,
+        timeout: 15000,
       })
 
       if (response.data && response.data.results && response.data.results.length > 0) {
-        const image = response.data.results[0]
+        const photo = response.data.results[0]
+        const imageUrl = photo.urls.regular || photo.urls.small
 
-        console.log(`✅ [UNSPLASH SERVICE] Found image for "${query}": ${image.urls.regular}`)
-
-        return {
-          success: true,
-          image: {
-            url: image.urls.regular,
-            thumbnail: image.urls.thumb,
-            alt: image.alt_description || query,
-            photographer: image.user.name,
-            photographerUrl: image.user.links.html,
-            downloadUrl: image.links.download_location,
-          },
-        }
+        console.log(`✅ [UNSPLASH SERVICE] Found image for "${query}": ${imageUrl}`)
+        return imageUrl
       } else {
-        console.warn(`⚠️ [UNSPLASH SERVICE] No images found for "${query}", using placeholder`)
-        return this.getPlaceholderImage(query)
+        console.log(`⚠️ [UNSPLASH SERVICE] No images found for "${query}", using fallback`)
+        return this.getFallbackImage(query)
       }
     } catch (error) {
       console.error(`❌ [UNSPLASH SERVICE] Error searching for "${query}":`, error.message)
-      return this.getPlaceholderImage(query)
-    }
-  }
-
-  getPlaceholderImage(query) {
-    const width = 800
-    const height = 400
-    const encodedQuery = encodeURIComponent(query)
-
-    return {
-      success: true,
-      image: {
-        url: `/placeholder.svg?height=${height}&width=${width}&text=${encodedQuery}`,
-        thumbnail: `/placeholder.svg?height=200&width=300&text=${encodedQuery}`,
-        alt: query,
-        photographer: "Placeholder",
-        photographerUrl: "#",
-        downloadUrl: null,
-      },
+      return this.getFallbackImage(query)
     }
   }
 
   async getRandomImage(category = "news") {
+    if (!this.isInitialized) {
+      return this.getFallbackImage(category)
+    }
+
     try {
       console.log(`🎲 [UNSPLASH SERVICE] Getting random image for category: "${category}"`)
 
-      if (!this.accessKey) {
-        return this.getPlaceholderImage(category)
-      }
-
       const response = await axios.get(`${this.baseUrl}/photos/random`, {
         params: {
+          client_id: this.accessKey,
           query: category,
           orientation: "landscape",
           content_filter: "high",
         },
-        headers: {
-          Authorization: `Client-ID ${this.accessKey}`,
-        },
-        timeout: 10000,
+        timeout: 15000,
       })
 
       if (response.data && response.data.urls) {
-        const image = response.data
-
-        console.log(`✅ [UNSPLASH SERVICE] Got random image: ${image.urls.regular}`)
-
-        return {
-          success: true,
-          image: {
-            url: image.urls.regular,
-            thumbnail: image.urls.thumb,
-            alt: image.alt_description || category,
-            photographer: image.user.name,
-            photographerUrl: image.user.links.html,
-            downloadUrl: image.links.download_location,
-          },
-        }
+        const imageUrl = response.data.urls.regular || response.data.urls.small
+        console.log(`✅ [UNSPLASH SERVICE] Got random image: ${imageUrl}`)
+        return imageUrl
       } else {
-        return this.getPlaceholderImage(category)
+        return this.getFallbackImage(category)
       }
     } catch (error) {
       console.error(`❌ [UNSPLASH SERVICE] Error getting random image:`, error.message)
-      return this.getPlaceholderImage(category)
+      return this.getFallbackImage(category)
     }
   }
 
-  getHealthStatus() {
-    return {
-      isHealthy: this.isHealthy,
-      lastError: this.lastError,
-      hasApiKey: !!this.accessKey,
-      service: "Unsplash",
+  getFallbackImage(query = "news") {
+    // Generate a placeholder image URL based on the query
+    const width = 800
+    const height = 400
+    const backgroundColor = this.getColorFromQuery(query)
+    const textColor = "ffffff"
+
+    const fallbackUrl = `https://via.placeholder.com/${width}x${height}/${backgroundColor}/${textColor}?text=${encodeURIComponent(query)}`
+
+    console.log(`🖼️ [UNSPLASH SERVICE] Using fallback image for "${query}": ${fallbackUrl}`)
+    return fallbackUrl
+  }
+
+  getColorFromQuery(query) {
+    // Generate a consistent color based on the query string
+    const colors = [
+      "3498db", // Blue
+      "2ecc71", // Green
+      "e74c3c", // Red
+      "f39c12", // Orange
+      "9b59b6", // Purple
+      "1abc9c", // Turquoise
+      "34495e", // Dark Blue
+      "95a5a6", // Gray
+    ]
+
+    let hash = 0
+    for (let i = 0; i < query.length; i++) {
+      hash = query.charCodeAt(i) + ((hash << 5) - hash)
     }
+
+    const index = Math.abs(hash) % colors.length
+    return colors[index]
   }
 }
 
 // Create singleton instance
 const unsplashService = new UnsplashService()
 
-module.exports = unsplashService
+module.exports = { unsplashService }

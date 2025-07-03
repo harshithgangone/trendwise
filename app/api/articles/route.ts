@@ -4,52 +4,44 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:10000"
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("🔗 [FRONTEND API] GET /api/articles - Proxying to backend")
+    console.log("📖 [FRONTEND] Fetching articles from backend...")
 
     const { searchParams } = new URL(request.url)
     const page = searchParams.get("page") || "1"
     const limit = searchParams.get("limit") || "10"
-    const category = searchParams.get("category") || ""
-    const featured = searchParams.get("featured") || ""
+    const category = searchParams.get("category")
+    const featured = searchParams.get("featured")
 
-    let backendUrl = `${BACKEND_URL}/api/articles?page=${page}&limit=${limit}`
-    if (category) {
-      backendUrl += `&category=${category}`
-    }
-    if (featured) {
-      backendUrl += `&featured=${featured}`
-    }
+    // Build query parameters
+    const params = new URLSearchParams({
+      page,
+      limit,
+    })
 
-    console.log(`📡 [FRONTEND API] Fetching from backend: ${backendUrl}`)
+    if (category) params.append("category", category)
+    if (featured) params.append("featured", featured)
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+    const backendUrl = `${BACKEND_URL}/api/articles?${params.toString()}`
+    console.log("🔗 [FRONTEND] Backend URL:", backendUrl)
 
     const response = await fetch(backendUrl, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "TrendWise-Frontend/1.0",
-        Accept: "application/json",
       },
-      signal: controller.signal,
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000), // 15 second timeout
     })
 
-    clearTimeout(timeoutId)
-
-    console.log(`📊 [FRONTEND API] Backend response status: ${response.status}`)
-
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`❌ [FRONTEND API] Backend error: ${response.status} ${response.statusText}`)
-      console.error(`❌ [FRONTEND API] Error details: ${errorText}`)
+      console.error(`❌ [FRONTEND] Backend responded with ${response.status}: ${response.statusText}`)
 
       // Return fallback response
       return NextResponse.json(
         {
           success: false,
           error: "Backend temporarily unavailable",
-          details: errorText,
           articles: [],
           pagination: {
             page: Number.parseInt(page),
@@ -60,28 +52,23 @@ export async function GET(request: NextRequest) {
             hasPrev: false,
           },
         },
-        { status: 503 },
+        { status: 500 },
       )
     }
 
     const data = await response.json()
-    console.log(`✅ [FRONTEND API] Successfully fetched ${data.articles?.length || 0} articles`)
+    console.log(`✅ [FRONTEND] Got ${data.articles?.length || 0} articles from backend`)
 
     return NextResponse.json(data)
-  } catch (error: any) {
-    console.error("❌ [FRONTEND API] Error fetching articles:", error.message)
+  } catch (error) {
+    console.error("❌ [FRONTEND] Error fetching articles:", error)
 
-    // Check if it's a timeout error
-    if (error.name === "AbortError") {
-      console.error("⏰ [FRONTEND API] Request timed out")
-    }
-
-    // Return fallback response with empty articles
+    // Return fallback response with error details
     return NextResponse.json(
       {
         success: false,
         error: "Failed to fetch articles",
-        message: error.message,
+        message: error instanceof Error ? error.message : "Unknown error",
         articles: [],
         pagination: {
           page: 1,
@@ -99,41 +86,43 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log("🔗 [FRONTEND API] POST /api/articles - Proxying to backend")
+    console.log("📝 [FRONTEND] Creating new article...")
 
     const body = await request.json()
-    const backendUrl = `${BACKEND_URL}/api/articles`
 
-    console.log(`📡 [FRONTEND API] Posting to backend: ${backendUrl}`)
-
-    const response = await fetch(backendUrl, {
+    const response = await fetch(`${BACKEND_URL}/api/articles`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "TrendWise-Frontend/1.0",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     })
 
-    console.log(`📊 [FRONTEND API] Backend response status: ${response.status}`)
-
-    const data = await response.json()
-
     if (!response.ok) {
-      console.error(`❌ [FRONTEND API] Backend error:`, data)
-      return NextResponse.json(data, { status: response.status })
+      console.error(`❌ [FRONTEND] Backend responded with ${response.status}: ${response.statusText}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Failed to create article",
+        },
+        { status: response.status },
+      )
     }
 
-    console.log(`✅ [FRONTEND API] Successfully created article`)
-    return NextResponse.json(data, { status: response.status })
-  } catch (error: any) {
-    console.error("❌ [FRONTEND API] Error creating article:", error.message)
+    const data = await response.json()
+    console.log("✅ [FRONTEND] Article created successfully")
+
+    return NextResponse.json(data)
+  } catch (error) {
+    console.error("❌ [FRONTEND] Error creating article:", error)
 
     return NextResponse.json(
       {
         success: false,
         error: "Failed to create article",
-        message: error.message,
+        message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )

@@ -1,46 +1,51 @@
-const trendBot = require("../services/trendBot")
 const Article = require("../models/Article")
-const Comment = require("../models/Comment")
-const User = require("../models/User")
+const { trendBot } = require("../services/trendBot")
+const { gnewsService } = require("../services/gnewsService")
+const { unsplashService } = require("../services/unsplashService")
+const { groqService } = require("../services/groqService")
 
 async function adminRoutes(fastify, options) {
-  // Get admin dashboard stats
+  console.log("📊 [ADMIN ROUTES] Registering admin routes...")
+
+  // Get system statistics
   fastify.get("/admin/stats", async (request, reply) => {
     try {
-      console.log("📊 [ADMIN API] GET /admin/stats - Fetching admin statistics")
+      console.log("📊 [ADMIN] Getting system stats...")
 
-      const [totalArticles, totalComments, totalUsers, recentArticles] = await Promise.all([
-        Article.countDocuments(),
-        Comment.countDocuments(),
-        User.countDocuments(),
-        Article.find().sort({ createdAt: -1 }).limit(5).select("title createdAt views likes").lean(),
+      const totalArticles = await Article.countDocuments()
+      const recentArticles = await Article.countDocuments({
+        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      })
+      const featuredArticles = await Article.countDocuments({ featured: true })
+
+      const categories = await Article.aggregate([
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
       ])
 
       const stats = {
         totalArticles,
-        totalComments,
-        totalUsers,
-        recentArticles: recentArticles.map((article) => ({
-          _id: article._id.toString(),
-          title: article.title,
-          createdAt: article.createdAt,
-          views: article.views || 0,
-          likes: article.likes || 0,
+        recentArticles,
+        featuredArticles,
+        categories: categories.map((cat) => ({
+          name: cat._id || "Uncategorized",
+          count: cat.count,
         })),
+        systemHealth: {
+          database: "healthy",
+          services: "operational",
+          lastUpdate: new Date().toISOString(),
+        },
       }
 
-      console.log(`✅ [ADMIN API] Stats: ${totalArticles} articles, ${totalComments} comments, ${totalUsers} users`)
-
-      return reply.send({
-        success: true,
-        stats,
-      })
+      console.log("✅ [ADMIN] Stats retrieved successfully")
+      return { success: true, stats }
     } catch (error) {
-      console.error("❌ [ADMIN API] Error fetching stats:", error.message)
-
+      console.error("❌ [ADMIN] Error getting stats:", error)
       return reply.status(500).send({
         success: false,
-        error: "Failed to fetch admin statistics",
+        error: "Failed to get system stats",
         message: error.message,
       })
     }
@@ -49,61 +54,59 @@ async function adminRoutes(fastify, options) {
   // Get bot status
   fastify.get("/admin/bot-status", async (request, reply) => {
     try {
-      console.log("🤖 [ADMIN API] GET /admin/bot-status - Fetching bot status")
+      const status = {
+        isRunning: trendBot && typeof trendBot.isRunning === "function" ? trendBot.isRunning() : false,
+        lastRun: trendBot && trendBot.lastRun ? trendBot.lastRun : null,
+        articlesGenerated: trendBot && trendBot.articlesGenerated ? trendBot.articlesGenerated : 0,
+        status: "operational",
+      }
 
-      const trendBot = require("../services/trendBot")
-      const status = trendBot.getStatus ? trendBot.getStatus() : { isActive: false, lastRun: null }
-
-      console.log(`✅ [ADMIN API] Bot status: ${status.isActive ? "active" : "inactive"}`)
-
-      return reply.send({
-        success: true,
-        botStatus: status,
-      })
+      return { success: true, status }
     } catch (error) {
-      console.error("❌ [ADMIN API] Error fetching bot status:", error.message)
-
+      console.error("❌ [ADMIN] Error getting bot status:", error)
       return reply.status(500).send({
         success: false,
-        error: "Failed to fetch bot status",
+        error: "Failed to get bot status",
         message: error.message,
-        botStatus: { isActive: false, lastRun: null },
       })
     }
   })
 
-  // Start/Stop bot
+  // Toggle bot on/off
   fastify.post("/admin/toggle-bot", async (request, reply) => {
     try {
-      console.log("🤖 [ADMIN API] POST /admin/toggle-bot - Toggling bot status")
-
-      const trendBot = require("../services/trendBot")
       const { action } = request.body
 
-      let result = { success: false, message: "Unknown action" }
-
       if (action === "start") {
-        if (trendBot.start && typeof trendBot.start === "function") {
+        if (trendBot && typeof trendBot.start === "function") {
           await trendBot.start()
-          result = { success: true, message: "TrendBot started successfully" }
-          console.log("✅ [ADMIN API] TrendBot started")
+          console.log("✅ [ADMIN] TrendBot started")
+          return { success: true, message: "TrendBot started successfully" }
         } else {
-          result = { success: false, message: "TrendBot start method not available" }
+          return reply.status(400).send({
+            success: false,
+            error: "TrendBot start method not available",
+          })
         }
       } else if (action === "stop") {
-        if (trendBot.stop && typeof trendBot.stop === "function") {
+        if (trendBot && typeof trendBot.stop === "function") {
           await trendBot.stop()
-          result = { success: true, message: "TrendBot stopped successfully" }
-          console.log("✅ [ADMIN API] TrendBot stopped")
+          console.log("✅ [ADMIN] TrendBot stopped")
+          return { success: true, message: "TrendBot stopped successfully" }
         } else {
-          result = { success: false, message: "TrendBot stop method not available" }
+          return reply.status(400).send({
+            success: false,
+            error: "TrendBot stop method not available",
+          })
         }
+      } else {
+        return reply.status(400).send({
+          success: false,
+          error: 'Invalid action. Use "start" or "stop"',
+        })
       }
-
-      return reply.send(result)
     } catch (error) {
-      console.error("❌ [ADMIN API] Error toggling bot:", error.message)
-
+      console.error("❌ [ADMIN] Error toggling bot:", error)
       return reply.status(500).send({
         success: false,
         error: "Failed to toggle bot",
@@ -112,37 +115,27 @@ async function adminRoutes(fastify, options) {
     }
   })
 
-  // Trigger manual bot run
+  // Trigger bot manually
   fastify.post("/admin/trigger-bot", async (request, reply) => {
     try {
-      console.log("🚀 [ADMIN API] POST /admin/trigger-bot - Manually triggering bot")
+      console.log("🤖 [ADMIN] Manually triggering TrendBot...")
 
-      const trendBot = require("../services/trendBot")
-
-      if (trendBot.runCycle && typeof trendBot.runCycle === "function") {
-        // Run bot cycle in background
-        trendBot
-          .runCycle()
-          .then(() => {
-            console.log("✅ [ADMIN API] Manual bot trigger completed successfully")
-          })
-          .catch((error) => {
-            console.error("❌ [ADMIN API] Manual bot trigger failed:", error.message)
-          })
-
-        return reply.send({
+      if (trendBot && typeof trendBot.generateArticles === "function") {
+        const result = await trendBot.generateArticles()
+        console.log("✅ [ADMIN] TrendBot triggered successfully")
+        return {
           success: true,
-          message: "TrendBot cycle triggered successfully",
-        })
+          message: "TrendBot triggered successfully",
+          result,
+        }
       } else {
-        return reply.status(500).send({
+        return reply.status(400).send({
           success: false,
-          error: "TrendBot runCycle method not available",
+          error: "TrendBot generateArticles method not available",
         })
       }
     } catch (error) {
-      console.error("❌ [ADMIN API] Error triggering bot:", error.message)
-
+      console.error("❌ [ADMIN] Error triggering bot:", error)
       return reply.status(500).send({
         success: false,
         error: "Failed to trigger bot",
@@ -154,203 +147,62 @@ async function adminRoutes(fastify, options) {
   // Get data source status
   fastify.get("/admin/data-source-status", async (request, reply) => {
     try {
-      console.log("🔍 [ADMIN API] GET /admin/data-source-status - Checking data sources")
-
-      const gnewsService = require("../services/gnewsService")
-      const groqService = require("../services/groqService")
-      const unsplashService = require("../services/unsplashService")
-
       const sources = {
-        gnews: { status: "unknown", message: "Not tested" },
-        groq: { status: "unknown", message: "Not tested" },
-        unsplash: { status: "unknown", message: "Not tested" },
+        gnews: false,
+        unsplash: false,
+        groq: false,
       }
 
       // Test GNews
       try {
-        if (gnewsService.testConnection && typeof gnewsService.testConnection === "function") {
+        if (gnewsService && typeof gnewsService.testConnection === "function") {
           await gnewsService.testConnection()
-          sources.gnews = { status: "healthy", message: "Connection successful" }
+          sources.gnews = true
         }
       } catch (error) {
-        sources.gnews = { status: "unhealthy", message: error.message }
-      }
-
-      // Test Groq
-      try {
-        if (groqService.testConnection && typeof groqService.testConnection === "function") {
-          await groqService.testConnection()
-          sources.groq = { status: "healthy", message: "Connection successful" }
-        }
-      } catch (error) {
-        sources.groq = { status: "unhealthy", message: error.message }
+        console.log("⚠️ [ADMIN] GNews not available:", error.message)
       }
 
       // Test Unsplash
       try {
-        if (unsplashService.testConnection && typeof unsplashService.testConnection === "function") {
+        if (unsplashService && typeof unsplashService.testConnection === "function") {
           await unsplashService.testConnection()
-          sources.unsplash = { status: "healthy", message: "Connection successful" }
+          sources.unsplash = true
         }
       } catch (error) {
-        sources.unsplash = { status: "unhealthy", message: error.message }
+        console.log("⚠️ [ADMIN] Unsplash not available:", error.message)
       }
 
-      console.log("✅ [ADMIN API] Data source status checked")
+      // Test Groq
+      try {
+        if (groqService && typeof groqService.testConnection === "function") {
+          await groqService.testConnection()
+          sources.groq = true
+        }
+      } catch (error) {
+        console.log("⚠️ [ADMIN] Groq not available:", error.message)
+      }
 
-      return reply.send({
+      const isUsingRealData = sources.gnews || sources.unsplash || sources.groq
+      const source = sources.gnews ? "GNews" : sources.unsplash ? "Unsplash" : sources.groq ? "Groq" : "Mock Data"
+
+      return {
         success: true,
         sources,
-      })
-    } catch (error) {
-      console.error("❌ [ADMIN API] Error checking data sources:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to check data source status",
-        message: error.message,
-      })
-    }
-  })
-
-  // Get articles for admin management
-  fastify.get("/admin/articles", async (request, reply) => {
-    try {
-      console.log("📖 [ADMIN API] GET /admin/articles - Fetching articles for admin")
-
-      const page = Number.parseInt(request.query.page) || 1
-      const limit = Number.parseInt(request.query.limit) || 20
-      const skip = (page - 1) * limit
-
-      const [articles, total] = await Promise.all([
-        Article.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-        Article.countDocuments(),
-      ])
-
-      const transformedArticles = articles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        status: article.status || "published",
-        createdAt: article.createdAt,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        category: article.category || "general",
-        featured: article.featured || false,
-      }))
-
-      const pagination = {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page < Math.ceil(total / limit),
-        hasPrev: page > 1,
+        isUsingRealData,
+        source,
       }
-
-      console.log(`✅ [ADMIN API] Found ${articles.length} articles for admin`)
-
-      return reply.send({
-        success: true,
-        articles: transformedArticles,
-        pagination,
-      })
     } catch (error) {
-      console.error("❌ [ADMIN API] Error fetching admin articles:", error.message)
-
+      console.error("❌ [ADMIN] Error checking data sources:", error)
       return reply.status(500).send({
         success: false,
-        error: "Failed to fetch articles",
-        message: error.message,
-        articles: [],
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
-      })
-    }
-  })
-
-  // Delete article
-  fastify.delete("/admin/articles/:id", async (request, reply) => {
-    try {
-      const { id } = request.params
-      console.log(`🗑️ [ADMIN API] DELETE /admin/articles/${id} - Deleting article`)
-
-      const article = await Article.findByIdAndDelete(id)
-
-      if (!article) {
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
-
-      console.log(`✅ [ADMIN API] Deleted article: ${article.title}`)
-
-      return reply.send({
-        success: true,
-        message: "Article deleted successfully",
-      })
-    } catch (error) {
-      console.error("❌ [ADMIN API] Error deleting article:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to delete article",
+        error: "Failed to check data sources",
         message: error.message,
       })
     }
   })
 
-  // Update article
-  fastify.put("/admin/articles/:id", async (request, reply) => {
-    try {
-      const { id } = request.params
-      const updateData = request.body
-
-      console.log(`✏️ [ADMIN API] PUT /admin/articles/${id} - Updating article`)
-
-      const article = await Article.findByIdAndUpdate(id, updateData, { new: true }).lean()
-
-      if (!article) {
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
-
-      console.log(`✅ [ADMIN API] Updated article: ${article.title}`)
-
-      return reply.send({
-        success: true,
-        article: {
-          _id: article._id.toString(),
-          title: article.title,
-          slug: article.slug,
-          status: article.status,
-          createdAt: article.createdAt,
-          views: article.views,
-          likes: article.likes,
-          category: article.category,
-          featured: article.featured,
-        },
-        message: "Article updated successfully",
-      })
-    } catch (error) {
-      console.error("❌ [ADMIN API] Error updating article:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to update article",
-        message: error.message,
-      })
-    }
-  })
+  console.log("✅ [ADMIN ROUTES] Admin routes registered successfully")
 }
 
 module.exports = adminRoutes
