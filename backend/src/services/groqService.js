@@ -5,25 +5,23 @@ class GroqService {
     this.apiKey = process.env.GROQ_API_KEY
     this.baseUrl = "https://api.groq.com/openai/v1"
     this.isHealthy = false
-    this.lastHealthCheck = null
+    this.lastError = null
 
     if (!this.apiKey) {
-      console.warn("⚠️ [GROQ SERVICE] No API key found, using fallback content generation")
+      console.warn("⚠️ [GROQ SERVICE] No API key found")
+      this.lastError = "No API key configured"
     } else {
-      console.log(`🔑 [GROQ SERVICE] Loaded GROQ_API_KEY: ${this.apiKey.substring(0, 8)}****`)
+      console.log(`✅ [GROQ SERVICE] Loaded GROQ_API_KEY: ${this.apiKey.substring(0, 6)}****`)
     }
   }
 
   async testConnection() {
     try {
-      if (!this.apiKey) {
-        console.log("🔧 [GROQ SERVICE] No API key - using fallback mode")
-        this.isHealthy = true
-        this.lastHealthCheck = new Date()
-        return { status: "healthy", mode: "fallback" }
-      }
-
       console.log("🔍 [GROQ SERVICE] Testing connection...")
+
+      if (!this.apiKey) {
+        throw new Error("No API key configured")
+      }
 
       const response = await axios.post(
         `${this.baseUrl}/chat/completions`,
@@ -32,7 +30,7 @@ class GroqService {
           messages: [
             {
               role: "user",
-              content: 'Hello, this is a connection test. Please respond with "Connection successful".',
+              content: 'Hello, this is a test message. Please respond with "Connection successful".',
             },
           ],
           max_tokens: 10,
@@ -47,51 +45,76 @@ class GroqService {
         },
       )
 
-      if (response.status === 200 && response.data.choices) {
+      if (response.data && response.data.choices && response.data.choices[0]) {
         this.isHealthy = true
-        this.lastHealthCheck = new Date()
+        this.lastError = null
         console.log("✅ [GROQ SERVICE] Connection test successful")
-        return { status: "healthy", mode: "live" }
+        return true
       } else {
-        throw new Error(`Invalid response: ${response.status}`)
+        throw new Error("Invalid response format")
       }
     } catch (error) {
-      console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
       this.isHealthy = false
-      this.lastHealthCheck = new Date()
-      return { status: "unhealthy", error: error.message }
+      this.lastError = error.message
+      console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
+      return false
     }
   }
 
   async generateArticle(newsData, options = {}) {
     try {
+      console.log(`🤖 [GROQ SERVICE] Generating article for: "${newsData.title}"`)
+
       if (!this.apiKey) {
-        console.log("🔧 [GROQ SERVICE] Using fallback content generation")
+        console.warn("⚠️ [GROQ SERVICE] No API key, using fallback content")
         return this.generateFallbackArticle(newsData)
       }
 
-      const prompt = this.buildPrompt(newsData, options)
+      const prompt = `
+You are a professional news writer for TrendWise. Create a comprehensive, engaging article based on this news:
 
-      console.log(`🤖 [GROQ SERVICE] Generating article for: "${newsData.title}"`)
+Title: ${newsData.title}
+Description: ${newsData.description}
+Source: ${newsData.source?.name || "Unknown"}
+URL: ${newsData.url}
+
+Requirements:
+1. Write a compelling headline (different from the original)
+2. Create an engaging excerpt (150-200 characters)
+3. Write a full article (800-1200 words) with multiple paragraphs
+4. Include relevant tags (5-7 tags)
+5. Assign an appropriate category
+6. Make it informative, engaging, and well-structured
+7. Use markdown formatting for better readability
+
+Format your response as JSON:
+{
+  "title": "Your compelling headline",
+  "excerpt": "Engaging excerpt...",
+  "content": "Full article content with markdown formatting...",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "category": "appropriate category",
+  "readTime": estimated_read_time_in_minutes
+}
+`
 
       const response = await axios.post(
         `${this.baseUrl}/chat/completions`,
         {
-          model: options.model || "llama3-8b-8192",
+          model: "llama3-70b-8192",
           messages: [
             {
               role: "system",
               content:
-                "You are a professional journalist and content writer. Create engaging, informative, and well-structured articles based on the provided news data. Always maintain journalistic integrity and provide balanced perspectives.",
+                "You are a professional news writer who creates engaging, informative articles. Always respond with valid JSON only.",
             },
             {
               role: "user",
               content: prompt,
             },
           ],
-          max_tokens: options.maxTokens || 2000,
-          temperature: options.temperature || 0.7,
-          top_p: options.topP || 0.9,
+          max_tokens: 2000,
+          temperature: 0.7,
         },
         {
           headers: {
@@ -103,237 +126,154 @@ class GroqService {
       )
 
       if (response.data && response.data.choices && response.data.choices[0]) {
-        const generatedContent = response.data.choices[0].message.content
-        console.log(`✅ [GROQ SERVICE] Successfully generated article (${generatedContent.length} chars)`)
+        const content = response.data.choices[0].message.content.trim()
 
-        return this.processGeneratedContent(generatedContent, newsData)
+        try {
+          // Try to parse JSON response
+          const articleData = JSON.parse(content)
+
+          console.log(`✅ [GROQ SERVICE] Generated article: "${articleData.title}"`)
+
+          return {
+            success: true,
+            article: {
+              title: articleData.title || newsData.title,
+              excerpt: articleData.excerpt || newsData.description?.substring(0, 200) + "...",
+              content: articleData.content || this.generateFallbackContent(newsData),
+              tags: articleData.tags || this.generateTags(newsData),
+              category: articleData.category || "General",
+              readTime: articleData.readTime || Math.ceil((articleData.content?.length || 1000) / 1000),
+              sourceUrl: newsData.url,
+              originalSource: newsData.source?.name || "Unknown",
+            },
+          }
+        } catch (parseError) {
+          console.warn("⚠️ [GROQ SERVICE] Failed to parse JSON, using fallback")
+          return this.generateFallbackArticle(newsData)
+        }
       } else {
-        throw new Error("Invalid response format from Groq API")
+        throw new Error("Invalid response format")
       }
     } catch (error) {
-      console.error(`❌ [GROQ SERVICE] Article generation failed:`, error.message)
-
-      if (error.response?.status === 401) {
-        console.error("🔑 [GROQ SERVICE] API key invalid")
-      } else if (error.response?.status === 429) {
-        console.error("⏱️ [GROQ SERVICE] Rate limit exceeded")
-      }
-
-      // Return fallback content
+      console.error("❌ [GROQ SERVICE] Error generating article:", error.message)
       return this.generateFallbackArticle(newsData)
     }
   }
 
-  buildPrompt(newsData, options) {
-    const style = options.style || "informative"
-    const length = options.length || "medium"
-
-    return `
-Please create a comprehensive article based on the following news information:
-
-Title: ${newsData.title}
-Description: ${newsData.description}
-Source: ${newsData.source?.name || "Unknown"}
-Published: ${newsData.publishedAt}
-
-Requirements:
-- Style: ${style} and engaging
-- Length: ${length} (aim for 800-1200 words)
-- Include relevant context and background information
-- Structure with clear paragraphs and logical flow
-- Maintain journalistic objectivity
-- Add insights and analysis where appropriate
-- Use HTML formatting for better readability
-
-Please provide:
-1. An engaging headline (if different from original)
-2. A compelling excerpt/summary (2-3 sentences)
-3. The full article content with proper HTML formatting
-4. 3-5 relevant tags
-5. Estimated reading time
-
-Format your response as a JSON object with these fields:
-{
-  "title": "Article title",
-  "excerpt": "Brief summary",
-  "content": "Full HTML formatted article content",
-  "tags": ["tag1", "tag2", "tag3"],
-  "readTime": 5,
-  "category": "appropriate category"
-}
-`
-  }
-
-  processGeneratedContent(content, originalNews) {
-    try {
-      // Try to parse as JSON first
-      const parsed = JSON.parse(content)
-
-      return {
-        title: parsed.title || originalNews.title,
-        excerpt: parsed.excerpt || originalNews.description,
-        content: parsed.content || content,
-        tags: parsed.tags || this.extractTags(originalNews.title + " " + originalNews.description),
-        readTime: parsed.readTime || this.calculateReadTime(parsed.content || content),
-        category: parsed.category || this.determineCategory(originalNews.title),
-        source: originalNews.source,
-        originalUrl: originalNews.url,
-        publishedAt: originalNews.publishedAt,
-      }
-    } catch (error) {
-      // If not JSON, treat as plain text
-      console.log("📝 [GROQ SERVICE] Processing as plain text content")
-
-      return {
-        title: originalNews.title,
-        excerpt: originalNews.description,
-        content: this.formatPlainTextAsHTML(content),
-        tags: this.extractTags(originalNews.title + " " + originalNews.description),
-        readTime: this.calculateReadTime(content),
-        category: this.determineCategory(originalNews.title),
-        source: originalNews.source,
-        originalUrl: originalNews.url,
-        publishedAt: originalNews.publishedAt,
-      }
-    }
-  }
-
   generateFallbackArticle(newsData) {
-    console.log("🎭 [GROQ SERVICE] Generating fallback article")
+    console.log("🔄 [GROQ SERVICE] Generating fallback article")
 
-    const fallbackContent = `
-      <div class="article-content">
-        <p><strong>Breaking News:</strong> ${newsData.description}</p>
-        
-        <p>This developing story continues to unfold as more information becomes available. Our team is monitoring the situation closely and will provide updates as they develop.</p>
-        
-        <p>The implications of this news could have far-reaching effects across multiple sectors. Industry experts are weighing in with their analysis and predictions for what this might mean moving forward.</p>
-        
-        <p>Key points to consider:</p>
-        <ul>
-          <li>The immediate impact on stakeholders and affected parties</li>
-          <li>Potential long-term consequences and implications</li>
-          <li>Expert opinions and analysis from industry leaders</li>
-          <li>What to watch for in upcoming developments</li>
-        </ul>
-        
-        <p>We will continue to monitor this story and provide comprehensive coverage as more details emerge. Stay tuned for the latest updates and in-depth analysis.</p>
-        
-        <p><em>This is a developing story. More information will be added as it becomes available.</em></p>
-      </div>
-    `
+    const fallbackContent = this.generateFallbackContent(newsData)
 
     return {
-      title: newsData.title,
-      excerpt: newsData.description,
-      content: fallbackContent,
-      tags: this.extractTags(newsData.title + " " + newsData.description),
-      readTime: this.calculateReadTime(fallbackContent),
-      category: this.determineCategory(newsData.title),
-      source: newsData.source,
-      originalUrl: newsData.url,
-      publishedAt: newsData.publishedAt,
+      success: true,
+      article: {
+        title: newsData.title,
+        excerpt: newsData.description?.substring(0, 200) + "..." || "Breaking news update from our editorial team.",
+        content: fallbackContent,
+        tags: this.generateTags(newsData),
+        category: this.categorizeNews(newsData),
+        readTime: Math.ceil(fallbackContent.length / 1000),
+        sourceUrl: newsData.url,
+        originalSource: newsData.source?.name || "Unknown",
+      },
     }
   }
 
-  extractTags(text) {
-    const commonWords = [
-      "the",
-      "and",
-      "or",
-      "but",
-      "in",
-      "on",
-      "at",
-      "to",
-      "for",
-      "of",
-      "with",
-      "by",
-      "is",
-      "are",
-      "was",
-      "were",
-      "be",
-      "been",
-      "have",
-      "has",
-      "had",
-      "do",
-      "does",
-      "did",
-      "will",
-      "would",
-      "could",
-      "should",
-      "may",
-      "might",
-      "must",
-      "can",
-      "this",
-      "that",
-      "these",
-      "those",
-      "a",
-      "an",
+  generateFallbackContent(newsData) {
+    const paragraphs = [
+      `# ${newsData.title}`,
+      "",
+      newsData.description || "This is a developing story that continues to unfold.",
+      "",
+      "Our editorial team is closely monitoring this situation and will provide updates as more information becomes available.",
+      "",
+      "## Key Points",
+      "",
+      "- This story is currently developing",
+      "- More details are expected to emerge",
+      "- We will continue to follow this story",
+      "",
+      "## What This Means",
+      "",
+      "This development represents an important moment in current events. The implications of this news may have far-reaching effects across various sectors.",
+      "",
+      "## Looking Forward",
+      "",
+      "As this story continues to develop, we encourage our readers to stay informed through reliable news sources. We will update this article as new information becomes available.",
+      "",
+      `*Source: ${newsData.source?.name || "News Wire"}*`,
     ]
 
-    const words = text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .split(/\s+/)
-      .filter((word) => word.length > 3 && !commonWords.includes(word))
-
-    const wordCount = {}
-    words.forEach((word) => {
-      wordCount[word] = (wordCount[word] || 0) + 1
-    })
-
-    return Object.entries(wordCount)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([word]) => word)
+    return paragraphs.join("\n")
   }
 
-  determineCategory(title) {
-    const categories = {
-      technology: ["tech", "ai", "software", "computer", "digital", "internet", "cyber"],
-      business: ["business", "economy", "market", "finance", "company", "corporate"],
-      health: ["health", "medical", "medicine", "hospital", "doctor", "treatment"],
-      science: ["science", "research", "study", "discovery", "experiment"],
-      politics: ["politics", "government", "election", "policy", "congress"],
-      sports: ["sports", "game", "team", "player", "championship", "league"],
-      entertainment: ["movie", "music", "celebrity", "entertainment", "show"],
+  generateTags(newsData) {
+    const title = (newsData.title || "").toLowerCase()
+    const description = (newsData.description || "").toLowerCase()
+    const content = title + " " + description
+
+    const possibleTags = [
+      "breaking news",
+      "technology",
+      "business",
+      "politics",
+      "health",
+      "science",
+      "entertainment",
+      "sports",
+      "world news",
+      "economy",
+      "innovation",
+      "research",
+      "development",
+      "analysis",
+      "trending",
+    ]
+
+    const tags = possibleTags
+      .filter((tag) => content.includes(tag.toLowerCase()) || tag.split(" ").some((word) => content.includes(word)))
+      .slice(0, 5)
+
+    // Ensure we have at least 3 tags
+    while (tags.length < 3) {
+      const randomTag = possibleTags[Math.floor(Math.random() * possibleTags.length)]
+      if (!tags.includes(randomTag)) {
+        tags.push(randomTag)
+      }
     }
 
-    const titleLower = title.toLowerCase()
+    return tags
+  }
+
+  categorizeNews(newsData) {
+    const title = (newsData.title || "").toLowerCase()
+    const description = (newsData.description || "").toLowerCase()
+    const content = title + " " + description
+
+    const categories = {
+      Technology: ["tech", "ai", "artificial intelligence", "software", "hardware", "digital", "cyber", "internet"],
+      Business: ["business", "economy", "market", "finance", "company", "corporate", "trade", "investment"],
+      Politics: ["politics", "government", "election", "policy", "congress", "senate", "president", "law"],
+      Health: ["health", "medical", "doctor", "hospital", "disease", "treatment", "medicine", "wellness"],
+      Science: ["science", "research", "study", "discovery", "experiment", "scientist", "laboratory"],
+      Sports: ["sports", "game", "team", "player", "championship", "league", "match", "tournament"],
+      Entertainment: ["entertainment", "movie", "music", "celebrity", "film", "show", "actor", "artist"],
+    }
 
     for (const [category, keywords] of Object.entries(categories)) {
-      if (keywords.some((keyword) => titleLower.includes(keyword))) {
+      if (keywords.some((keyword) => content.includes(keyword))) {
         return category
       }
     }
 
-    return "general"
-  }
-
-  calculateReadTime(content) {
-    const wordsPerMinute = 200
-    const wordCount = content.replace(/<[^>]*>/g, "").split(/\s+/).length
-    return Math.max(1, Math.ceil(wordCount / wordsPerMinute))
-  }
-
-  formatPlainTextAsHTML(text) {
-    return text
-      .split("\n\n")
-      .map((paragraph) => `<p>${paragraph.trim()}</p>`)
-      .join("\n")
+    return "General"
   }
 
   getHealthStatus() {
     return {
       isHealthy: this.isHealthy,
-      lastHealthCheck: this.lastHealthCheck,
+      lastError: this.lastError,
       hasApiKey: !!this.apiKey,
       service: "Groq",
     }

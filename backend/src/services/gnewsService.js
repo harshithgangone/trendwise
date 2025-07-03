@@ -5,29 +5,26 @@ class GNewsService {
     this.apiKey = process.env.GNEWS_API_KEY
     this.baseUrl = "https://gnews.io/api/v4"
     this.isHealthy = false
-    this.lastHealthCheck = null
+    this.lastError = null
 
     if (!this.apiKey) {
-      console.warn("⚠️ [GNEWS SERVICE] No API key found, using mock data")
+      console.warn("⚠️ [GNEWS SERVICE] No API key found")
+      this.lastError = "No API key configured"
     } else {
-      console.log(`🔑 [GNEWS SERVICE] Loaded GNEWS_API_KEY: ${this.apiKey.substring(0, 6)}****`)
+      console.log(`✅ [GNEWS SERVICE] Loaded GNEWS_API_KEY: ${this.apiKey.substring(0, 6)}****`)
     }
   }
 
   async testConnection() {
     try {
-      if (!this.apiKey) {
-        console.log("🔧 [GNEWS SERVICE] No API key - using mock mode")
-        this.isHealthy = true
-        this.lastHealthCheck = new Date()
-        return { status: "healthy", mode: "mock" }
-      }
-
       console.log("🔍 [GNEWS SERVICE] Testing connection...")
 
-      const response = await axios.get(`${this.baseUrl}/search`, {
+      if (!this.apiKey) {
+        throw new Error("No API key configured")
+      }
+
+      const response = await axios.get(`${this.baseUrl}/top-headlines`, {
         params: {
-          q: "technology",
           token: this.apiKey,
           lang: "en",
           max: 1,
@@ -35,27 +32,28 @@ class GNewsService {
         timeout: 10000,
       })
 
-      if (response.status === 200 && response.data) {
+      if (response.data && response.data.articles) {
         this.isHealthy = true
-        this.lastHealthCheck = new Date()
+        this.lastError = null
         console.log("✅ [GNEWS SERVICE] Connection test successful")
-        return { status: "healthy", mode: "live" }
+        return true
       } else {
-        throw new Error(`Invalid response: ${response.status}`)
+        throw new Error("Invalid response format")
       }
     } catch (error) {
-      console.error("❌ [GNEWS SERVICE] Connection test failed:", error.message)
       this.isHealthy = false
-      this.lastHealthCheck = new Date()
-      return { status: "unhealthy", error: error.message }
+      this.lastError = error.message
+      console.error("❌ [GNEWS SERVICE] Connection test failed:", error.message)
+      return false
     }
   }
 
   async searchNews(query, options = {}) {
     try {
+      console.log(`🔍 [GNEWS SERVICE] Searching for: "${query}"`)
+
       if (!this.apiKey) {
-        console.log("🔧 [GNEWS SERVICE] Using mock data for query:", query)
-        return this.getMockNews(query)
+        throw new Error("No API key configured")
       }
 
       const params = {
@@ -96,9 +94,10 @@ class GNewsService {
 
   async getTopHeadlines(options = {}) {
     try {
+      console.log("📰 [GNEWS SERVICE] Fetching top headlines...")
+
       if (!this.apiKey) {
-        console.log("🔧 [GNEWS SERVICE] Using mock headlines")
-        return this.getMockNews("headlines")
+        throw new Error("No API key configured")
       }
 
       const params = {
@@ -165,9 +164,55 @@ class GNewsService {
     }
   }
 
+  async getTrendingTopics() {
+    try {
+      console.log("📈 [GNEWS SERVICE] Fetching trending topics...")
+
+      const topics = [
+        "artificial intelligence",
+        "cryptocurrency",
+        "climate change",
+        "technology",
+        "politics",
+        "business",
+        "health",
+        "science",
+      ]
+
+      const results = []
+
+      for (const topic of topics.slice(0, 3)) {
+        // Limit to 3 topics to avoid rate limits
+        const result = await this.searchNews(topic, { max: 5 })
+        if (result.success && result.articles.length > 0) {
+          results.push({
+            topic,
+            articles: result.articles,
+          })
+        }
+
+        // Add delay between requests
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+
+      console.log(`✅ [GNEWS SERVICE] Fetched trending topics: ${results.length} topics`)
+      return {
+        success: true,
+        topics: results,
+      }
+    } catch (error) {
+      console.error("❌ [GNEWS SERVICE] Error fetching trending topics:", error.message)
+      return {
+        success: false,
+        error: error.message,
+        topics: [],
+      }
+    }
+  }
+
   processArticles(data) {
     if (!data.articles || !Array.isArray(data.articles)) {
-      return { totalArticles: 0, articles: [] }
+      return { success: false, totalArticles: 0, articles: [] }
     }
 
     const processedArticles = data.articles.map((article) => ({
@@ -184,6 +229,7 @@ class GNewsService {
     }))
 
     return {
+      success: true,
       totalArticles: data.totalArticles || processedArticles.length,
       articles: processedArticles,
     }
@@ -248,6 +294,7 @@ class GNewsService {
     ]
 
     return {
+      success: false,
       totalArticles: mockArticles.length,
       articles: mockArticles,
     }
@@ -256,7 +303,7 @@ class GNewsService {
   getHealthStatus() {
     return {
       isHealthy: this.isHealthy,
-      lastHealthCheck: this.lastHealthCheck,
+      lastError: this.lastError,
       hasApiKey: !!this.apiKey,
       service: "GNews",
     }

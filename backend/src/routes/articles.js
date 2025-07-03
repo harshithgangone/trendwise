@@ -13,7 +13,7 @@ async function articleRoutes(fastify, options) {
       const skip = (page - 1) * limit
 
       // Build query
-      const query = {}
+      const query = { status: "published" }
       if (category && category !== "all") {
         query.category = category
       }
@@ -89,7 +89,7 @@ async function articleRoutes(fastify, options) {
       const { slug } = request.params
       console.log(`📖 [ARTICLES API] GET /articles/${slug}`)
 
-      const article = await Article.findOne({ slug }).lean()
+      const article = await Article.findOne({ slug, status: "published" }).lean()
 
       if (!article) {
         console.log(`❌ [ARTICLES API] Article not found: ${slug}`)
@@ -140,66 +140,15 @@ async function articleRoutes(fastify, options) {
     }
   })
 
-  // GET /api/articles/by-id/:id - Get single article by ID
-  fastify.get("/articles/by-id/:id", async (request, reply) => {
-    try {
-      const { id } = request.params
-      console.log(`📖 [ARTICLES API] GET /articles/by-id/${id}`)
-
-      const article = await Article.findById(id).lean()
-
-      if (!article) {
-        console.log(`❌ [ARTICLES API] Article not found: ${id}`)
-        return reply.status(404).send({
-          success: false,
-          error: "Article not found",
-        })
-      }
-
-      console.log(`✅ [ARTICLES API] Found article: ${article.title}`)
-
-      // Transform article for frontend
-      const transformedArticle = {
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt,
-        content: article.content,
-        thumbnail: article.thumbnail || "/placeholder.svg?height=400&width=600",
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "general",
-        readTime: article.readTime || 5,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        saves: article.saves || 0,
-        featured: article.featured || false,
-        author: article.author || "TrendWise AI",
-        trendData: article.trendData,
-        media: article.media,
-      }
-
-      return reply.send(transformedArticle)
-    } catch (error) {
-      console.error("❌ [ARTICLES API] Error fetching article by ID:", error.message)
-
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch article",
-        message: error.message,
-      })
-    }
-  })
-
   // GET /api/articles/categories - Get all categories
   fastify.get("/articles/categories", async (request, reply) => {
     try {
       console.log("📊 [ARTICLES API] GET /articles/categories")
 
-      const categories = await Article.distinct("category")
+      const categories = await Article.distinct("category", { status: "published" })
       const categoriesWithCounts = await Promise.all(
         categories.map(async (category) => {
-          const count = await Article.countDocuments({ category })
+          const count = await Article.countDocuments({ category, status: "published" })
           return { name: category, count }
         }),
       )
@@ -228,7 +177,10 @@ async function articleRoutes(fastify, options) {
 
       const limit = Number.parseInt(request.query.limit) || 10
 
-      const trendingArticles = await Article.find().sort({ views: -1, likes: -1, createdAt: -1 }).limit(limit).lean()
+      const trendingArticles = await Article.find({ status: "published" })
+        .sort({ views: -1, likes: -1, createdAt: -1 })
+        .limit(limit)
+        .lean()
 
       console.log(`✅ [ARTICLES API] Found ${trendingArticles.length} trending articles`)
 
@@ -276,8 +228,8 @@ async function articleRoutes(fastify, options) {
       console.log(`📊 [ARTICLES API] GET /articles/category/${category}`)
 
       const [articles, total] = await Promise.all([
-        Article.find({ category }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-        Article.countDocuments({ category }),
+        Article.find({ category, status: "published" }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        Article.countDocuments({ category, status: "published" }),
       ])
 
       console.log(`✅ [ARTICLES API] Found ${articles.length} articles in category "${category}"`)

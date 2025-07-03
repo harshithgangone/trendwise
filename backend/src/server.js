@@ -1,6 +1,5 @@
 const fastify = require("fastify")({ logger: false })
 const mongoose = require("mongoose")
-const cors = require("@fastify/cors")
 
 // Import services
 const trendBot = require("./services/trendBot")
@@ -25,7 +24,7 @@ console.log(`🌍 [Server] Environment: ${process.env.NODE_ENV || "development"}
 console.log(`🔧 [Server] Node.js version: ${process.version}`)
 
 // Register CORS
-fastify.register(cors, {
+fastify.register(require("@fastify/cors"), {
   origin: true,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -36,10 +35,7 @@ async function connectDatabase() {
   try {
     console.log("🗄️ [Database] Connecting to MongoDB...")
 
-    await mongoose.connect(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    })
+    await mongoose.connect(MONGODB_URI)
 
     console.log("✅ [Database] Connected to MongoDB successfully")
   } catch (error) {
@@ -68,6 +64,16 @@ async function registerRoutes() {
         timestamp: new Date().toISOString(),
         services,
       })
+    })
+
+    // Root endpoint
+    fastify.get("/", async (request, reply) => {
+      return {
+        message: "TrendWise Backend API",
+        version: "1.0.0",
+        status: "running",
+        timestamp: new Date().toISOString(),
+      }
     })
 
     // API routes
