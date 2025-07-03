@@ -404,10 +404,14 @@ class TrendBot {
         console.log("⚠️ [TrendBot] Image fetch failed, using placeholder:", imageError.message)
       }
 
-      // Step 3: Create article object with realistic engagement numbers
+      // Step 3: Generate unique slug to avoid duplicates
+      const baseSlug = this.generateSlug(trend.title)
+      const uniqueSlug = await this.generateUniqueSlug(baseSlug)
+
+      // Step 4: Create article object with realistic engagement numbers
       const articleData = {
         title: trend.title,
-        slug: this.generateSlug(trend.title),
+        slug: uniqueSlug,
         content: aiContent.content,
         excerpt: trend.description || this.generateExcerpt(aiContent.content),
         thumbnail: thumbnail,
@@ -435,7 +439,7 @@ class TrendBot {
         },
       }
 
-      // Step 4: Save to database
+      // Step 5: Save to database
       console.log("💾 [TrendBot] Saving article to database...")
       const article = new Article(articleData)
       await article.save()
@@ -445,6 +449,35 @@ class TrendBot {
     } catch (error) {
       console.error(`❌ [TrendBot] Failed to generate article for "${trend.title}":`, error)
       throw error
+    }
+  }
+
+  async generateUniqueSlug(baseSlug) {
+    let slug = baseSlug
+    let counter = 1
+
+    while (true) {
+      try {
+        const existingArticle = await Article.findOne({ slug })
+        if (!existingArticle) {
+          console.log(`✅ [TrendBot] Generated unique slug: "${slug}"`)
+          return slug
+        }
+
+        slug = `${baseSlug}-${counter}`
+        counter++
+        console.log(`🔄 [TrendBot] Slug exists, trying: "${slug}"`)
+
+        // Prevent infinite loop
+        if (counter > 100) {
+          slug = `${baseSlug}-${Date.now()}`
+          console.log(`⚠️ [TrendBot] Using timestamp slug: "${slug}"`)
+          return slug
+        }
+      } catch (error) {
+        console.error(`❌ [TrendBot] Error checking slug uniqueness:`, error)
+        return `${baseSlug}-${Date.now()}`
+      }
     }
   }
 

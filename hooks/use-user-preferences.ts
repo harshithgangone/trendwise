@@ -1,197 +1,229 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useSession } from "next-auth/react"
 
-interface UserPreference {
-  userId?: string
-  email?: string
-  likedArticles: string[]
-  savedArticles: string[]
-  recentlyViewed: string[]
+interface UserPreferences {
+  [articleId: string]: {
+    liked: boolean
+    saved: boolean
+  }
 }
 
-export function useUserPreferences() {
-  const { data: session, status } = useSession()
-  const [preferences, setPreferences] = useState<UserPreference>({
-    likedArticles: [],
-    savedArticles: [],
-    recentlyViewed: [],
-  })
-  const [loading, setLoading] = useState(true)
+interface UseUserPreferencesReturn {
+  preferences: UserPreferences
+  isLoading: boolean
+  likeArticle: (articleId: string) => Promise<{ success: boolean; liked: boolean; likes: number }>
+  saveArticle: (articleId: string) => Promise<{ success: boolean; saved: boolean; saves: number }>
+  refreshPreferences: (articleIds: string[]) => Promise<void>
+}
 
-  useEffect(() => {
-    // Only fetch preferences if user is authenticated
-    if (status === "authenticated" && session?.user) {
-      const loadPreferences = async () => {
-        try {
-          // Try to load from localStorage first for immediate display
-          const storedPrefs = localStorage.getItem(`userPrefs_${session.user?.email}`)
-          if (storedPrefs) {
-            setPreferences(JSON.parse(storedPrefs))
-          }
+export function useUserPreferences(): UseUserPreferencesReturn {
+  const { data: session } = useSession()
+  const [preferences, setPreferences] = useState<UserPreferences>({})
+  const [isLoading, setIsLoading] = useState(false)
 
-          // Then fetch from backend to ensure we have the latest data
-          const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
-          const response = await fetch(
-            `${backendUrl}/api/user/preferences?email=${encodeURIComponent(session.user.email || "")}`,
-          )
-
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.preferences) {
-              // Transform backend data to frontend format
-              const prefs = {
-                userId: data.preferences.userId,
-                email: data.preferences.email,
-                likedArticles: data.preferences.likedArticles.map((item: any) => item.articleId),
-                savedArticles: data.preferences.savedArticles.map((item: any) => item.articleId),
-                recentlyViewed: data.preferences.recentlyViewed.map((item: any) => item.articleId),
-              }
-
-              setPreferences(prefs)
-              // Update localStorage
-              localStorage.setItem(`userPrefs_${session.user?.email}`, JSON.stringify(prefs))
-            }
-          }
-        } catch (error) {
-          console.error("Error loading user preferences:", error)
-        } finally {
-          setLoading(false)
-        }
-      }
-
-      loadPreferences()
-    } else if (status === "unauthenticated") {
-      setLoading(false)
-    }
-  }, [session, status])
-
-  // Function to add an article to recently viewed
-  const addToRecentlyViewed = (articleId: string) => {
-    if (!articleId || !session?.user?.email) return
-
-    setPreferences((prev) => {
-      // Remove if already exists to avoid duplicates
-      const filtered = prev.recentlyViewed.filter((id) => id !== articleId)
-      // Add to beginning of array (most recent first)
-      const updated = [articleId, ...filtered].slice(0, 20) // Keep only last 20
-
-      // Update localStorage
-      const updatedPrefs = { ...prev, recentlyViewed: updated }
-      localStorage.setItem(`userPrefs_${session.user?.email}`, JSON.stringify(updatedPrefs))
-
-      // Update backend asynchronously
-      updateBackendPreferences(updatedPrefs)
-
-      return updatedPrefs
-    })
-  }
-
-  // Function to toggle liked status
-  const toggleLiked = (articleId: string) => {
-    if (!articleId || !session?.user?.email) return false
-
-    let isNowLiked = false
-
-    setPreferences((prev) => {
-      const isLiked = prev.likedArticles.includes(articleId)
-      let updated
-
-      if (isLiked) {
-        // Remove from liked
-        updated = prev.likedArticles.filter((id) => id !== articleId)
-        isNowLiked = false
-      } else {
-        // Add to liked
-        updated = [...prev.likedArticles, articleId]
-        isNowLiked = true
-      }
-
-      // Update localStorage
-      const updatedPrefs = { ...prev, likedArticles: updated }
-      localStorage.setItem(`userPrefs_${session.user?.email}`, JSON.stringify(updatedPrefs))
-
-      // Update backend asynchronously
-      updateBackendPreferences(updatedPrefs)
-
-      return updatedPrefs
-    })
-
-    return isNowLiked
-  }
-
-  // Function to toggle saved status
-  const toggleSaved = (articleId: string) => {
-    if (!articleId || !session?.user?.email) return false
-
-    let isNowSaved = false
-
-    setPreferences((prev) => {
-      const isSaved = prev.savedArticles.includes(articleId)
-      let updated
-
-      if (isSaved) {
-        // Remove from saved
-        updated = prev.savedArticles.filter((id) => id !== articleId)
-        isNowSaved = false
-      } else {
-        // Add to saved
-        updated = [...prev.savedArticles, articleId]
-        isNowSaved = true
-      }
-
-      // Update localStorage
-      const updatedPrefs = { ...prev, savedArticles: updated }
-      localStorage.setItem(`userPrefs_${session.user?.email}`, JSON.stringify(updatedPrefs))
-
-      // Update backend asynchronously
-      updateBackendPreferences(updatedPrefs)
-
-      return updatedPrefs
-    })
-
-    return isNowSaved
-  }
-
-  // Helper function to update backend
-  const updateBackendPreferences = async (prefs: UserPreference) => {
-    if (!session?.user?.email) return
+  const refreshPreferences = async (articleIds: string[]) => {
+    if (!session?.user?.email || articleIds.length === 0) return
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
-      await fetch(`${backendUrl}/api/user/preferences`, {
+      setIsLoading(true)
+      console.log(`🔄 [USER PREFERENCES] Refreshing preferences for ${articleIds.length} articles`)
+
+      const response = await fetch(
+        `/api/users/${encodeURIComponent(session.user.email)}/preferences?articleIds=${articleIds.join(",")}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          console.log(`✅ [USER PREFERENCES] Loaded preferences for ${Object.keys(data.preferences).length} articles`)
+          setPreferences((prev) => ({ ...prev, ...data.preferences }))
+        }
+      }
+    } catch (error) {
+      console.error("❌ [USER PREFERENCES] Error refreshing preferences:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const likeArticle = async (articleId: string) => {
+    try {
+      console.log(`👍 [USER PREFERENCES] Liking article: ${articleId}`)
+
+      // Optimistic update
+      const currentLiked = preferences[articleId]?.liked || false
+      setPreferences((prev) => ({
+        ...prev,
+        [articleId]: {
+          ...prev[articleId],
+          liked: !currentLiked,
+        },
+      }))
+
+      const response = await fetch(`/api/articles/like/${articleId}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          email: session.user.email,
-          preferences: prefs,
-        }),
       })
+
+      const data = await response.json()
+
+      if (data.success) {
+        console.log(`✅ [USER PREFERENCES] Like successful: ${data.liked ? "liked" : "unliked"}`)
+
+        // Update with server response
+        setPreferences((prev) => ({
+          ...prev,
+          [articleId]: {
+            ...prev[articleId],
+            liked: data.liked,
+          },
+        }))
+
+        return {
+          success: true,
+          liked: data.liked,
+          likes: data.likes,
+        }
+      } else {
+        // Revert optimistic update on failure
+        setPreferences((prev) => ({
+          ...prev,
+          [articleId]: {
+            ...prev[articleId],
+            liked: currentLiked,
+          },
+        }))
+
+        console.error("❌ [USER PREFERENCES] Like failed:", data.error)
+        return {
+          success: false,
+          liked: currentLiked,
+          likes: 0,
+        }
+      }
     } catch (error) {
-      console.error("Error updating user preferences:", error)
+      console.error("❌ [USER PREFERENCES] Error liking article:", error)
+
+      // Revert optimistic update on error
+      const currentLiked = preferences[articleId]?.liked || false
+      setPreferences((prev) => ({
+        ...prev,
+        [articleId]: {
+          ...prev[articleId],
+          liked: !currentLiked,
+        },
+      }))
+
+      return {
+        success: false,
+        liked: !currentLiked,
+        likes: 0,
+      }
     }
   }
 
-  // Check if an article is liked
-  const isLiked = (articleId: string) => {
-    return preferences.likedArticles.includes(articleId)
-  }
+  const saveArticle = async (articleId: string) => {
+    if (!session?.user?.email) {
+      console.log("❌ [USER PREFERENCES] No user session for saving")
+      return {
+        success: false,
+        saved: false,
+        saves: 0,
+      }
+    }
 
-  // Check if an article is saved
-  const isSaved = (articleId: string) => {
-    return preferences.savedArticles.includes(articleId)
+    try {
+      console.log(`💾 [USER PREFERENCES] Saving article: ${articleId}`)
+
+      // Optimistic update
+      const currentSaved = preferences[articleId]?.saved || false
+      setPreferences((prev) => ({
+        ...prev,
+        [articleId]: {
+          ...prev[articleId],
+          saved: !currentSaved,
+        },
+      }))
+
+      const response = await fetch(`/api/articles/save/${articleId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        console.log(`✅ [USER PREFERENCES] Save successful: ${data.saved ? "saved" : "unsaved"}`)
+
+        // Update with server response
+        setPreferences((prev) => ({
+          ...prev,
+          [articleId]: {
+            ...prev[articleId],
+            saved: data.saved,
+          },
+        }))
+
+        return {
+          success: true,
+          saved: data.saved,
+          saves: data.saves,
+        }
+      } else {
+        // Revert optimistic update on failure
+        setPreferences((prev) => ({
+          ...prev,
+          [articleId]: {
+            ...prev[articleId],
+            saved: currentSaved,
+          },
+        }))
+
+        console.error("❌ [USER PREFERENCES] Save failed:", data.error)
+        return {
+          success: false,
+          saved: currentSaved,
+          saves: 0,
+        }
+      }
+    } catch (error) {
+      console.error("❌ [USER PREFERENCES] Error saving article:", error)
+
+      // Revert optimistic update on error
+      const currentSaved = preferences[articleId]?.saved || false
+      setPreferences((prev) => ({
+        ...prev,
+        [articleId]: {
+          ...prev[articleId],
+          saved: !currentSaved,
+        },
+      }))
+
+      return {
+        success: false,
+        saved: !currentSaved,
+        saves: 0,
+      }
+    }
   }
 
   return {
     preferences,
-    loading,
-    addToRecentlyViewed,
-    toggleLiked,
-    toggleSaved,
-    isLiked,
-    isSaved,
+    isLoading,
+    likeArticle,
+    saveArticle,
+    refreshPreferences,
   }
 }
