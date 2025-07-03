@@ -1,4 +1,5 @@
 const Article = require("../models/Article")
+const TrendBot = require("../services/trendBot")
 
 async function articleRoutes(fastify, options) {
   // Get all articles with pagination and filtering
@@ -464,6 +465,19 @@ async function articleRoutes(fastify, options) {
         error: "Failed to fetch categories",
         message: error.message,
       })
+    }
+  })
+
+  // Manual refresh endpoint to trigger GNews/AI fetch
+  fastify.post("/articles/refresh", async (request, reply) => {
+    try {
+      console.log("🔄 [API] Manual refresh endpoint called. Triggering TrendBot manualTrigger...");
+      const result = await TrendBot.manualTrigger();
+      console.log("✅ [API] Manual refresh completed.", result);
+      return reply.send({ success: true, result });
+    } catch (error) {
+      console.error("❌ [API] Error in manual refresh endpoint:", error);
+      return reply.status(500).send({ success: false, error: error.message });
     }
   })
 }
