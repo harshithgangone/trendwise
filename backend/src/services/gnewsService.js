@@ -417,3 +417,27 @@ async function fetchGNewsArticles(query, max = 10) {
 }
 
 module.exports.fetchGNewsArticles = fetchGNewsArticles;
+
+// Add this function to provide trending topics in the expected format
+async function getTrendingTopics(limit = 10) {
+  // For trending, use a generic query like 'top news' or 'trending'
+  const articles = await fetchGNewsArticles('top news', limit);
+  if (!articles || articles.length === 0) {
+    return { success: false, trends: [], error: 'No articles from GNews' };
+  }
+  // Map to expected format
+  const trends = articles.map(article => ({
+    title: article.title,
+    description: article.description,
+    url: article.url,
+    publishedAt: article.publishedAt,
+    image: article.image,
+    source: article.source?.name || 'GNews',
+    category: article.category || 'General',
+    tags: article.keywords || [],
+    score: 50 // Placeholder, can be improved
+  }));
+  return { success: true, trends };
+}
+
+module.exports.getTrendingTopics = getTrendingTopics;
