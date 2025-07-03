@@ -309,18 +309,22 @@ class TrendBot {
 
     for (const trend of trends) {
       try {
-        // Check if we already have an article with similar title
-        const existingArticle = await Article.findOne({
+        // Improved duplicate check: match by URL or fuzzy title
+        const query = {
           $or: [
-            { title: new RegExp(trend.title.substring(0, 20), "i") },
+            trend.url ? { url: trend.url } : {},
+            { title: { $regex: new RegExp(trend.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } },
             { slug: trend.title.toLowerCase().replace(/[^a-z0-9]+/g, "-") },
           ],
-        })
+        };
+        console.log(`🔍 [TrendBot] Checking for existing article with query:`, JSON.stringify(query));
+        const existingArticle = await Article.findOne(query)
 
         if (!existingArticle) {
+          console.log(`🆕 [TrendBot] No duplicate found. Will generate: "${trend.title}"`);
           newTrends.push(trend)
         } else {
-          console.log(`⏭️ [TrendBot] Skipping existing topic: "${trend.title}"`)
+          console.log(`⏭️ [TrendBot] Skipping existing topic: "${trend.title}" (matched by URL or fuzzy title)`)
         }
       } catch (error) {
         console.error(`❌ [TrendBot] Error checking existing article for "${trend.title}":`, error)
