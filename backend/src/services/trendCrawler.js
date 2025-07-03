@@ -1,238 +1,259 @@
-const { gnewsService } = require("./gnewsService")
+const gnewsService = require("./gnewsService")
 
 class TrendCrawler {
   constructor() {
     this.sources = ["gnews", "fallback"]
-    this.lastCrawl = null
-    this.isHealthy = true
-    this.errorCount = 0
-
+    this.isInitialized = true
     console.log("🕷️ [TrendCrawler] Initialized with multiple sources")
   }
 
-  async crawlTrends(limit = 20) {
+  async crawlTrends() {
+    console.log("🔍 [TrendCrawler] Starting trend crawling...")
+
     try {
-      console.log(`🕷️ [TrendCrawler] Starting trend crawl (limit: ${limit})...`)
-      this.lastCrawl = new Date()
+      // Try to get trends from GNews first
+      const gnewsTrends = await this.crawlGNewsTrends()
 
-      let allTrends = []
-
-      // Try GNews first
-      try {
-        const gnewsTrends = await gnewsService.getTrendingNews(limit)
-        if (gnewsTrends && gnewsTrends.length > 0) {
-          allTrends = allTrends.concat(
-            gnewsTrends.map((trend) => ({
-              ...trend,
-              source: "gnews",
-              crawledAt: new Date(),
-            })),
-          )
-          console.log(`✅ [TrendCrawler] Got ${gnewsTrends.length} trends from GNews`)
+      if (gnewsTrends && gnewsTrends.length > 0) {
+        console.log(`✅ [TrendCrawler] Found ${gnewsTrends.length} trends from GNews`)
+        return {
+          success: true,
+          trends: gnewsTrends,
+          source: "gnews",
         }
-      } catch (error) {
-        console.error("❌ [TrendCrawler] GNews failed:", error.message)
-        this.errorCount++
       }
 
-      // If we don't have enough trends, add fallback content
-      if (allTrends.length < limit / 2) {
-        console.log("⚠️ [TrendCrawler] Adding fallback trends...")
-        const fallbackTrends = this.getFallbackTrends(limit - allTrends.length)
-        allTrends = allTrends.concat(fallbackTrends)
-      }
-
-      // Remove duplicates and limit results
-      const uniqueTrends = this.removeDuplicates(allTrends)
-      const finalTrends = uniqueTrends.slice(0, limit)
-
-      console.log(`✅ [TrendCrawler] Crawl complete - ${finalTrends.length} unique trends found`)
-
-      this.isHealthy = true
-      this.errorCount = 0
+      // Fallback to mock trends
+      console.log("⚠️ [TrendCrawler] GNews failed, using fallback trends")
+      const fallbackTrends = this.getFallbackTrends()
 
       return {
         success: true,
-        trends: finalTrends,
-        totalFound: finalTrends.length,
-        sources: this.getSourceStats(finalTrends),
-        crawledAt: this.lastCrawl,
+        trends: fallbackTrends,
+        source: "fallback",
       }
     } catch (error) {
-      console.error("❌ [TrendCrawler] Crawl failed:", error.message)
-      this.isHealthy = false
-      this.errorCount++
+      console.error("❌ [TrendCrawler] Error crawling trends:", error.message)
 
+      // Return fallback trends on error
+      const fallbackTrends = this.getFallbackTrends()
       return {
         success: false,
+        trends: fallbackTrends,
+        source: "fallback",
         error: error.message,
-        trends: this.getFallbackTrends(limit),
-        crawledAt: this.lastCrawl,
       }
     }
   }
 
-  removeDuplicates(trends) {
-    const seen = new Set()
-    return trends.filter((trend) => {
-      const key = trend.title.toLowerCase().trim()
-      if (seen.has(key)) {
-        return false
+  async crawlGNewsTrends() {
+    try {
+      console.log("📡 [TrendCrawler] Crawling GNews for trending topics...")
+
+      // Get trending news from GNews
+      const newsArticles = await gnewsService.getTrendingNews(15)
+
+      if (!newsArticles || newsArticles.length === 0) {
+        console.log("⚠️ [TrendCrawler] No articles from GNews")
+        return []
       }
-      seen.add(key)
-      return true
-    })
+
+      // Transform news articles into trend format
+      const trends = newsArticles.map((article, index) => ({
+        title: article.title,
+        description: article.description,
+        content: article.content,
+        url: article.url,
+        image: article.image,
+        source: article.source?.name || "GNews",
+        category: this.categorizeArticle(article.title, article.description),
+        trendScore: this.calculateTrendScore(article, index),
+        type: "news",
+        topic: this.extractTopic(article.title),
+        publishedAt: article.publishedAt,
+      }))
+
+      // Sort by trend score
+      trends.sort((a, b) => b.trendScore - a.trendScore)
+
+      console.log(`✅ [TrendCrawler] Processed ${trends.length} trends from GNews`)
+      return trends
+    } catch (error) {
+      console.error("❌ [TrendCrawler] Error crawling GNews trends:", error.message)
+      return []
+    }
   }
 
-  getSourceStats(trends) {
-    const stats = {}
-    trends.forEach((trend) => {
-      const source = trend.source || "unknown"
-      stats[source] = (stats[source] || 0) + 1
-    })
-    return stats
-  }
-
-  getFallbackTrends(limit = 10) {
+  getFallbackTrends() {
     const fallbackTrends = [
       {
         title: "Artificial Intelligence Revolutionizes Healthcare Diagnostics",
         description:
-          "New AI systems are showing remarkable accuracy in medical diagnosis, potentially transforming patient care worldwide.",
+          "New AI-powered diagnostic tools are showing unprecedented accuracy in early disease detection, potentially saving millions of lives.",
         content:
-          "Healthcare professionals are increasingly turning to artificial intelligence to enhance diagnostic accuracy and speed. Recent studies show AI systems can detect certain conditions with greater precision than traditional methods.",
+          "Healthcare professionals are increasingly turning to artificial intelligence to enhance diagnostic accuracy and speed. Recent studies show that AI systems can detect certain conditions with over 95% accuracy, often identifying issues that human doctors might miss. This breakthrough technology is being implemented in hospitals worldwide, marking a significant step forward in medical care.",
         url: "https://example.com/ai-healthcare",
-        image: "/placeholder.svg?height=400&width=600",
+        image: "https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=800&h=400&fit=crop",
+        source: "TechHealth News",
+        category: "Health",
+        trendScore: 95,
+        type: "technology",
+        topic: "AI Healthcare",
         publishedAt: new Date().toISOString(),
-        source: { name: "HealthTech Today" },
-        crawledAt: new Date(),
       },
       {
-        title: "Sustainable Energy Solutions Reach New Efficiency Milestones",
+        title: "Sustainable Energy Breakthrough: Solar Efficiency Reaches New Heights",
         description:
-          "Solar and wind technologies achieve record-breaking efficiency rates, making renewable energy more accessible than ever.",
+          "Scientists achieve record-breaking solar panel efficiency, bringing renewable energy closer to widespread adoption.",
         content:
-          "The renewable energy sector is experiencing unprecedented growth as new technologies push efficiency boundaries. Solar panels and wind turbines are becoming more cost-effective and powerful.",
-        url: "https://example.com/renewable-energy",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Green Energy News" },
-        crawledAt: new Date(),
+          "A team of researchers has developed solar panels with 47% efficiency, nearly doubling the performance of current commercial panels. This breakthrough could make solar energy more cost-effective than fossil fuels in most regions, accelerating the global transition to renewable energy sources.",
+        url: "https://example.com/solar-breakthrough",
+        image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?w=800&h=400&fit=crop",
+        source: "Green Energy Today",
+        category: "Science",
+        trendScore: 88,
+        type: "breakthrough",
+        topic: "Renewable Energy",
+        publishedAt: new Date(Date.now() - 3600000).toISOString(),
       },
       {
-        title: "Global Markets Show Resilience Amid Economic Uncertainty",
+        title: "Global Economic Recovery Shows Strong Momentum",
         description:
-          "Despite challenges, international markets demonstrate stability and growth potential across multiple sectors.",
+          "International markets demonstrate resilience as economic indicators point to sustained growth across major economies.",
         content:
-          "Financial analysts are cautiously optimistic about market trends, noting strong fundamentals in key sectors despite ongoing global uncertainties.",
-        url: "https://example.com/market-resilience",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Financial Insights" },
-        crawledAt: new Date(),
+          "Economic analysts report positive trends across multiple sectors, with unemployment rates declining and consumer confidence reaching pre-pandemic levels. The recovery appears to be gaining momentum, driven by technological innovation and increased investment in infrastructure projects.",
+        url: "https://example.com/economic-recovery",
+        image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=400&fit=crop",
+        source: "Financial Times",
+        category: "Business",
+        trendScore: 82,
+        type: "economic",
+        topic: "Economic Recovery",
+        publishedAt: new Date(Date.now() - 7200000).toISOString(),
       },
       {
-        title: "Space Technology Advances Open New Frontiers",
+        title: "Space Exploration Milestone: Mars Mission Reveals Groundbreaking Discoveries",
         description:
-          "Recent breakthroughs in space exploration technology are paving the way for ambitious missions and discoveries.",
+          "Latest Mars rover findings provide compelling evidence of past microbial life, reshaping our understanding of the Red Planet.",
         content:
-          "The space industry is experiencing rapid innovation with new propulsion systems, satellite technologies, and exploration capabilities being developed.",
-        url: "https://example.com/space-tech",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Space Explorer" },
-        crawledAt: new Date(),
+          "The Mars Perseverance rover has uncovered mineral formations that strongly suggest the presence of ancient microbial life. These findings represent one of the most significant discoveries in space exploration history, opening new possibilities for understanding life beyond Earth.",
+        url: "https://example.com/mars-discovery",
+        image: "https://images.unsplash.com/photo-1446776653964-20c1d3a81b06?w=800&h=400&fit=crop",
+        source: "Space News Network",
+        category: "Science",
+        trendScore: 90,
+        type: "discovery",
+        topic: "Space Exploration",
+        publishedAt: new Date(Date.now() - 10800000).toISOString(),
       },
       {
-        title: "Educational Technology Transforms Learning Experiences",
+        title: "Cybersecurity Alert: New Protection Protocols Defend Against Advanced Threats",
         description:
-          "Digital learning platforms and immersive technologies are reshaping how students engage with educational content.",
+          "Innovative cybersecurity measures successfully thwart sophisticated attacks, setting new standards for digital protection.",
         content:
-          "Schools and universities worldwide are adopting innovative educational technologies to create more engaging and effective learning environments.",
-        url: "https://example.com/edtech-transform",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Education Innovation" },
-        crawledAt: new Date(),
-      },
-      {
-        title: "Cybersecurity Measures Evolve to Counter New Threats",
-        description: "Organizations implement advanced security protocols as cyber threats become more sophisticated.",
-        content:
-          "The cybersecurity landscape is rapidly evolving with new threats emerging daily. Companies are investing heavily in advanced security measures and employee training.",
-        url: "https://example.com/cybersecurity",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Security Today" },
-        crawledAt: new Date(),
-      },
-      {
-        title: "Urban Development Projects Focus on Sustainability",
-        description:
-          "Cities worldwide are implementing green building practices and sustainable urban planning initiatives.",
-        content:
-          "Urban planners are prioritizing sustainability in new development projects, incorporating green spaces, energy-efficient buildings, and smart city technologies.",
-        url: "https://example.com/urban-sustainability",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "Urban Planning Weekly" },
-        crawledAt: new Date(),
-      },
-      {
-        title: "Biotechnology Breakthroughs Promise Medical Advances",
-        description:
-          "Recent discoveries in biotechnology are opening new possibilities for treating previously incurable conditions.",
-        content:
-          "Researchers are making significant strides in biotechnology, developing new treatments and therapies that could revolutionize medicine.",
-        url: "https://example.com/biotech-breakthrough",
-        image: "/placeholder.svg?height=400&width=600",
-        publishedAt: new Date().toISOString(),
-        source: { name: "BioTech Review" },
-        crawledAt: new Date(),
+          "Security experts have developed advanced protection protocols that use machine learning to predict and prevent cyber attacks before they occur. These systems have already prevented several major security breaches, demonstrating their effectiveness against even the most sophisticated threats.",
+        url: "https://example.com/cybersecurity-breakthrough",
+        image: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&h=400&fit=crop",
+        source: "CyberSec Today",
+        category: "Technology",
+        trendScore: 85,
+        type: "security",
+        topic: "Cybersecurity",
+        publishedAt: new Date(Date.now() - 14400000).toISOString(),
       },
     ]
 
-    const selectedTrends = fallbackTrends
-      .sort(() => Math.random() - 0.5) // Shuffle
-      .slice(0, limit)
-      .map((trend) => ({
-        ...trend,
-        source: "fallback",
-      }))
-
-    console.log(`📰 [TrendCrawler] Generated ${selectedTrends.length} fallback trends`)
-    return selectedTrends
+    console.log(`🎭 [TrendCrawler] Generated ${fallbackTrends.length} fallback trends`)
+    return fallbackTrends
   }
 
-  getHealthStatus() {
-    return {
-      status: this.isHealthy ? "healthy" : "unhealthy",
-      lastCrawl: this.lastCrawl,
-      errorCount: this.errorCount,
-      sources: this.sources,
-      timestamp: new Date().toISOString(),
+  categorizeArticle(title, description) {
+    const text = (title + " " + description).toLowerCase()
+
+    const categories = {
+      Technology: ["tech", "ai", "artificial intelligence", "software", "digital", "cyber", "innovation"],
+      Business: ["business", "economy", "market", "finance", "company", "corporate", "investment"],
+      Health: ["health", "medical", "healthcare", "medicine", "disease", "treatment", "wellness"],
+      Science: ["science", "research", "discovery", "study", "breakthrough", "experiment"],
+      Politics: ["politics", "government", "election", "policy", "congress", "political"],
+      Sports: ["sports", "game", "team", "player", "championship", "match"],
+      Entertainment: ["entertainment", "movie", "music", "celebrity", "film", "show"],
+      World: ["world", "international", "global", "country", "nation"],
     }
+
+    for (const [category, keywords] of Object.entries(categories)) {
+      if (keywords.some((keyword) => text.includes(keyword))) {
+        return category
+      }
+    }
+
+    return "General"
   }
 
-  async testSources() {
-    const results = {}
+  calculateTrendScore(article, index) {
+    let score = 100 - index * 5 // Base score decreases with position
 
-    // Test GNews
+    // Boost score based on recency
+    if (article.publishedAt) {
+      const hoursAgo = (Date.now() - new Date(article.publishedAt).getTime()) / (1000 * 60 * 60)
+      if (hoursAgo < 1) score += 20
+      else if (hoursAgo < 6) score += 10
+      else if (hoursAgo < 24) score += 5
+    }
+
+    // Boost score based on content quality
+    if (article.description && article.description.length > 100) score += 10
+    if (article.content && article.content.length > 500) score += 15
+
+    // Boost score for certain keywords
+    const trendingKeywords = ["breaking", "urgent", "exclusive", "major", "significant", "unprecedented"]
+    const text = (article.title + " " + article.description).toLowerCase()
+    trendingKeywords.forEach((keyword) => {
+      if (text.includes(keyword)) score += 5
+    })
+
+    return Math.min(100, Math.max(0, score))
+  }
+
+  extractTopic(title) {
+    // Extract the main topic from the title
+    const words = title.split(" ")
+    const stopWords = ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by"]
+    const meaningfulWords = words.filter((word) => !stopWords.includes(word.toLowerCase()) && word.length > 3)
+
+    return meaningfulWords.slice(0, 3).join(" ")
+  }
+
+  async healthCheck() {
     try {
-      await gnewsService.testConnection()
-      results.gnews = { status: "healthy", error: null }
+      console.log("🏥 [TrendCrawler] Performing health check...")
+
+      // Test GNews service
+      const gnewsHealthy = await gnewsService.testConnection().catch(() => false)
+
+      const status = {
+        status: "healthy",
+        sources: {
+          gnews: gnewsHealthy,
+          fallback: true,
+        },
+        timestamp: new Date().toISOString(),
+      }
+
+      console.log("✅ [TrendCrawler] Health check completed:", status)
+      return status
     } catch (error) {
-      results.gnews = { status: "unhealthy", error: error.message }
+      console.error("❌ [TrendCrawler] Health check failed:", error.message)
+      return {
+        status: "unhealthy",
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      }
     }
-
-    // Fallback is always available
-    results.fallback = { status: "healthy", error: null }
-
-    return results
   }
 }
 
 // Create singleton instance
 const trendCrawler = new TrendCrawler()
 
-module.exports = { trendCrawler }
+module.exports = trendCrawler

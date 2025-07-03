@@ -219,4 +219,4 @@ class GNewsService {
 // Create singleton instance
 const gnewsService = new GNewsService()
 
-module.exports = { gnewsService }
+module.exports = gnewsService

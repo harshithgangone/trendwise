@@ -242,5 +242,4 @@ class TrendBot {
 // Create singleton instance
 const trendBot = new TrendBot()
 
-// Export the instance directly
 module.exports = trendBot

@@ -1,22 +1,13 @@
 const axios = require("axios")
-const Groq = require("groq-sdk")
 
 class GroqService {
   constructor() {
-    this.client = null
-    this.isInitialized = false
     this.apiKey = process.env.GROQ_API_KEY
+    this.baseUrl = "https://api.groq.com/openai/v1"
+    this.isInitialized = !!this.apiKey
 
-    if (this.apiKey) {
-      try {
-        this.client = new Groq({
-          apiKey: this.apiKey,
-        })
-        this.isInitialized = true
-        console.log("✅ [GROQ SERVICE] Initialized successfully")
-      } catch (error) {
-        console.error("❌ [GROQ SERVICE] Failed to initialize:", error.message)
-      }
+    if (this.isInitialized) {
+      console.log("✅ [GROQ SERVICE] Initialized with API key")
     } else {
       console.log("⚠️ [GROQ SERVICE] No API key found, using fallback mode")
     }
@@ -24,18 +15,38 @@ class GroqService {
 
   async testConnection() {
     if (!this.isInitialized) {
-      throw new Error("Groq service not initialized")
+      throw new Error("Groq API key not configured")
     }
 
     try {
-      const response = await this.client.chat.completions.create({
-        messages: [{ role: "user", content: "Hello" }],
-        model: "llama3-8b-8192",
-        max_tokens: 10,
-      })
+      const response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          model: "llama3-8b-8192",
+          messages: [
+            {
+              role: "user",
+              content: 'Hello, this is a test message. Please respond with "Connection successful".',
+            },
+          ],
+          max_tokens: 10,
+          temperature: 0.1,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 10000,
+        },
+      )
 
-      console.log("✅ [GROQ SERVICE] Connection test successful")
-      return true
+      if (response.data && response.data.choices && response.data.choices[0]) {
+        console.log("✅ [GROQ SERVICE] Connection test successful")
+        return true
+      } else {
+        throw new Error("Invalid response format")
+      }
     } catch (error) {
       console.error("❌ [GROQ SERVICE] Connection test failed:", error.message)
       throw error
@@ -76,24 +87,34 @@ Format as JSON:
   "readTime": 5
 }`
 
-      const response = await this.client.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a professional journalist and content creator. Create engaging, informative articles that are well-structured and easy to read. Always respond with valid JSON.",
+      const response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a professional journalist and content creator. Create engaging, informative articles that are well-structured and easy to read. Always respond with valid JSON.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+          model: "llama3-8b-8192",
+          max_tokens: 2000,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
           },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        model: "llama3-8b-8192",
-        max_tokens: 2000,
-        temperature: 0.7,
-      })
+          timeout: 30000,
+        },
+      )
 
-      const content = response.choices[0]?.message?.content
+      const content = response.data?.choices?.[0]?.message?.content
       if (!content) {
         throw new Error("No content generated")
       }
@@ -236,23 +257,33 @@ Format as JSON:
     }
 
     try {
-      const response = await this.client.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content: "You are a professional editor. Create concise, engaging summaries.",
+      const response = await axios.post(
+        `${this.baseUrl}/chat/completions`,
+        {
+          messages: [
+            {
+              role: "system",
+              content: "You are a professional editor. Create concise, engaging summaries.",
+            },
+            {
+              role: "user",
+              content: `Summarize this text in ${maxLength} characters or less:\n\n${text}`,
+            },
+          ],
+          model: "llama3-8b-8192",
+          max_tokens: 100,
+          temperature: 0.5,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
           },
-          {
-            role: "user",
-            content: `Summarize this text in ${maxLength} characters or less:\n\n${text}`,
-          },
-        ],
-        model: "llama3-8b-8192",
-        max_tokens: 100,
-        temperature: 0.5,
-      })
+          timeout: 15000,
+        },
+      )
 
-      return response.choices[0]?.message?.content || text.substring(0, maxLength) + "..."
+      return response.data?.choices?.[0]?.message?.content || text.substring(0, maxLength) + "..."
     } catch (error) {
       console.error("❌ [GROQ SERVICE] Error generating summary:", error.message)
       return text.substring(0, maxLength) + "..."
@@ -263,4 +294,4 @@ Format as JSON:
 // Create singleton instance
 const groqService = new GroqService()
 
-module.exports = { groqService }
+module.exports = groqService
