@@ -272,127 +272,109 @@ class TrendCrawler {
   }
 
   categorizeByTitle(title) {
-    const titleLower = title.toLowerCase()
-
-    if (
-      titleLower.includes("ai") ||
-      titleLower.includes("artificial intelligence") ||
-      titleLower.includes("machine learning")
-    ) {
-      return "Technology"
-    }
-    if (titleLower.includes("startup") || titleLower.includes("business") || titleLower.includes("finance")) {
-      return "Business"
-    }
-    if (titleLower.includes("health") || titleLower.includes("medical") || titleLower.includes("medicine")) {
-      return "Health"
-    }
-    if (titleLower.includes("science") || titleLower.includes("research") || titleLower.includes("study")) {
-      return "Science"
-    }
-    if (titleLower.includes("climate") || titleLower.includes("environment") || titleLower.includes("green")) {
-      return "Environment"
-    }
-
-    return "General"
+    const lowerTitle = title.toLowerCase();
+    if (lowerTitle.includes("ai") || lowerTitle.includes("artificial intelligence") || lowerTitle.includes("machine learning")) return "Technology";
+    if (lowerTitle.includes("business") || lowerTitle.includes("economy") || lowerTitle.includes("finance") || lowerTitle.includes("market")) return "Business";
+    if (lowerTitle.includes("health") || lowerTitle.includes("medical") || lowerTitle.includes("disease")) return "Health";
+    if (lowerTitle.includes("science") || lowerTitle.includes("discovery") || lowerTitle.includes("research")) return "Science";
+    if (lowerTitle.includes("entertainment") || lowerTitle.includes("movie") || lowerTitle.includes("music")) return "Entertainment";
+    if (lowerTitle.includes("sport") || lowerTitle.includes("game") || lowerTitle.includes("team")) return "Sports";
+    if (lowerTitle.includes("environment") || lowerTitle.includes("climate") || lowerTitle.includes("sustainability")) return "Environment";
+    if (lowerTitle.includes("politics") || lowerTitle.includes("government") || lowerTitle.includes("election")) return "Politics";
+    return "General";
   }
 
   extractTagsFromTitle(title) {
-    const commonTags = [
-      "AI",
-      "Technology",
-      "Business",
-      "Science",
-      "Health",
-      "Innovation",
-      "Startup",
-      "Research",
-      "Digital",
-      "Software",
-      "Data",
-      "Security",
-    ]
-
-    const titleLower = title.toLowerCase()
-    const foundTags = commonTags.filter((tag) => titleLower.includes(tag.toLowerCase()))
-
-    return foundTags.length > 0 ? foundTags.slice(0, 5) : ["News", "Trending"]
+    const tags = new Set();
+    const words = title.toLowerCase().split(/\s|\W+/);
+    const commonKeywords = ["ai", "tech", "startup", "innovation", "future", "health", "science", "business", "market", "economy", "environment", "climate", "digital"];
+    words.forEach(word => {
+      if (commonKeywords.includes(word)) tags.add(word);
+    });
+    return Array.from(tags);
   }
 
   cleanTitle(title) {
-    return title.replace(/ - [^-]+$/, "").trim()
+    // Remove unwanted prefixes/suffixes often found in RSS feeds
+    return title.replace(/^(<!\[CDATA\[)?(.*?)(]\]>)?$/, '$2').trim();
   }
 
   cleanDescription(description) {
-    return description
-      .replace(/<[^>]*>/g, "")
-      .replace(/&[^;]+;/g, " ")
-      .trim()
-      .substring(0, 300)
+    // Remove HTML tags and common RSS artifacts
+    return description.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ').trim();
   }
 
   removeDuplicates(trends) {
-    const seen = new Set()
-    return trends.filter((trend) => {
-      const key = trend.title.toLowerCase().replace(/[^\w]/g, "")
-      if (seen.has(key)) {
-        return false
+    const uniqueUrls = new Set();
+    const uniqueTrends = [];
+    for (const trend of trends) {
+      if (!uniqueUrls.has(trend.url)) {
+        uniqueUrls.add(trend.url);
+        uniqueTrends.push(trend);
       }
-      seen.add(key)
-      return true
-    })
+    }
+    return uniqueTrends;
   }
 
-  getFallbackTrends(limit = 10) {
-    const fallbackTrends = [
+  getFallbackTrends(limit = 5) {
+    const fallbackData = [
       {
-        title: "Artificial Intelligence Breakthrough in Healthcare Diagnostics",
-        description: "New AI system shows 95% accuracy in early disease detection",
+        title: "Latest Developments in Artificial Intelligence Technology",
+        description: "Researchers at leading universities have made significant strides in developing more efficient AI algorithms, promising breakthroughs in various industries.",
         category: "Technology",
-        tags: ["AI", "Healthcare", "Technology", "Innovation"],
+        tags: ["AI", "Technology", "Innovation"],
         source: "fallback",
-        publishedAt: new Date().toISOString(),
+        publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
         score: 85,
+        url: "#",
+        image: "/placeholder.svg?height=400&width=600"
       },
       {
-        title: "Sustainable Energy Solutions Gain Global Momentum",
-        description: "Renewable energy adoption accelerates worldwide with new government initiatives",
-        category: "Environment",
-        tags: ["Renewable Energy", "Environment", "Sustainability", "Climate"],
-        source: "fallback",
-        publishedAt: new Date().toISOString(),
-        score: 80,
-      },
-      {
-        title: "Quantum Computing Milestone Achieved by Tech Giants",
-        description: "Major breakthrough in quantum error correction brings practical applications closer",
-        category: "Technology",
-        tags: ["Quantum Computing", "Technology", "Innovation", "Science"],
-        source: "fallback",
-        publishedAt: new Date().toISOString(),
-        score: 90,
-      },
-      {
-        title: "Digital Banking Revolution Transforms Financial Services",
-        description: "Fintech innovations reshape traditional banking with AI-powered solutions",
+        title: "Sustainable Business Practices Gaining Momentum",
+        description: "More companies are adopting eco-friendly strategies and renewable energy sources, driven by consumer demand and regulatory changes.",
         category: "Business",
-        tags: ["Fintech", "Banking", "Digital", "Finance"],
+        tags: ["Sustainability", "Business", "Environment"],
         source: "fallback",
-        publishedAt: new Date().toISOString(),
-        score: 75,
+        publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+        score: 80,
+        url: "#",
+        image: "/placeholder.svg?height=400&width=600"
       },
       {
-        title: "Space Technology Advances Enable Mars Mission Planning",
-        description: "New propulsion systems and life support technologies pave way for Mars exploration",
-        category: "Science",
-        tags: ["Space", "Mars", "Technology", "Exploration"],
+        title: "Revolutionary Health Tech Innovations",
+        description: "New wearable devices and AI-powered diagnostic tools are transforming healthcare, offering personalized treatment and early detection.",
+        category: "Health",
+        tags: ["Health", "Technology", "Innovation"],
         source: "fallback",
-        publishedAt: new Date().toISOString(),
-        score: 85,
+        publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+        score: 90,
+        url: "#",
+        image: "/placeholder.svg?height=400&width=600"
       },
-    ]
-
-    return fallbackTrends.slice(0, limit)
+      {
+        title: "Exploring the Depths of Space: New Discoveries",
+        description: "Astronomers have announced the discovery of several exoplanets with potential for life, expanding our understanding of the universe.",
+        category: "Science",
+        tags: ["Space", "Science", "Astronomy"],
+        source: "fallback",
+        publishedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago
+        score: 88,
+        url: "#",
+        image: "/placeholder.svg?height=400&width=600"
+      },
+      {
+        title: "The Rise of Quantum Computing: What it Means for the Future",
+        description: "Experts predict quantum computing will revolutionize industries from medicine to finance, offering unprecedented processing power.",
+        category: "Technology",
+        tags: ["Quantum Computing", "Technology", "Future"],
+        source: "fallback",
+        publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
+        score: 92,
+        url: "#",
+        image: "/placeholder.svg?height=400&width=600"
+      },
+    ];
+    return fallbackData.slice(0, limit);
   }
 
   async healthCheck() {

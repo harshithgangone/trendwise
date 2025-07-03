@@ -74,20 +74,23 @@ export default function CategoriesPage() {
   const fetchAllArticles = async () => {
     try {
       setLoading(true)
-      console.log("📖 [FRONTEND] Fetching all articles...")
-      const response = await fetch("/api/articles?limit=12")
+      console.log("📖 [FRONTEND] Fetching all articles from /api/articles?limit=200...")
+      const response = await fetch("/api/articles?limit=200")
       const data = await response.json()
+      console.log("✅ [FRONTEND] Articles API response data:", data)
 
       if (data.success) {
         setArticles(data.articles || [])
         setHasMore(data.pagination?.hasNext || false)
-        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} articles`)
+        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} articles. Has more: ${data.pagination?.hasNext || false}`)
       } else {
-        throw new Error(data.error || "Failed to fetch articles")
+        const errorMessage = data.error || "Failed to fetch articles";
+        console.error("❌ [FRONTEND] Articles API returned error:", errorMessage);
+        setError(errorMessage);
       }
     } catch (error) {
       console.error("❌ [FRONTEND] Error fetching articles:", error)
-      setError("Failed to load articles")
+      setError("Failed to load articles (Network or parsing error)")
     } finally {
       setLoading(false)
     }
@@ -96,10 +99,11 @@ export default function CategoriesPage() {
   const fetchArticlesByCategory = async (category: string, pageNum = 1) => {
     try {
       setArticlesLoading(true)
-      console.log(`📂 [FRONTEND] Fetching articles for category: ${category}`)
+      console.log(`📂 [FRONTEND] Fetching articles for category: ${category}, page: ${pageNum}`)
 
       const response = await fetch(`/api/articles/category/${encodeURIComponent(category)}?page=${pageNum}&limit=12`)
       const data = await response.json()
+      console.log("✅ [FRONTEND] Category Articles API response data:", data)
 
       if (data.success) {
         if (pageNum === 1) {
@@ -109,13 +113,15 @@ export default function CategoriesPage() {
         }
         setHasMore(data.pagination?.hasNext || false)
         setPage(pageNum)
-        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} articles for category "${category}"`)
+        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} articles for category "${category}". Has more: ${data.pagination?.hasNext || false}`)
       } else {
-        throw new Error(data.error || "Failed to fetch articles")
+        const errorMessage = data.error || "Failed to fetch articles";
+        console.error("❌ [FRONTEND] Category Articles API returned error:", errorMessage);
+        setError(errorMessage);
       }
     } catch (error) {
       console.error("❌ [FRONTEND] Error fetching articles by category:", error)
-      setError("Failed to load articles for this category")
+      setError("Failed to load articles for this category (Network or parsing error)")
     } finally {
       setArticlesLoading(false)
     }
@@ -140,19 +146,25 @@ export default function CategoriesPage() {
   const fetchMoreArticles = async () => {
     try {
       setArticlesLoading(true)
-      console.log(`📖 [FRONTEND] Loading more articles (page ${page + 1})...`)
+      console.log(`📖 [FRONTEND] Loading more articles (page ${page + 1}) from /api/articles...`)
 
       const response = await fetch(`/api/articles?page=${page + 1}&limit=12`)
       const data = await response.json()
+      console.log("✅ [FRONTEND] More Articles API response data:", data);
 
       if (data.success) {
         setArticles((prev) => [...prev, ...(data.articles || [])])
         setHasMore(data.pagination?.hasNext || false)
         setPage(page + 1)
-        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} more articles`)
+        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} more articles. Has more: ${data.pagination?.hasNext || false}`)
+      } else {
+        const errorMessage = data.error || "Failed to load more articles";
+        console.error("❌ [FRONTEND] More Articles API returned error:", errorMessage);
+        setError(errorMessage);
       }
     } catch (error) {
       console.error("❌ [FRONTEND] Error loading more articles:", error)
+      setError("Failed to load more articles (Network or parsing error)")
     } finally {
       setArticlesLoading(false)
     }
@@ -350,23 +362,21 @@ export default function CategoriesPage() {
           >
             <Card className="max-w-md mx-auto shadow-lg">
               <CardContent className="pt-6">
-                <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">No Articles Found</h3>
-                <p className="text-gray-600 mb-6">
-                  {selectedCategory
-                    ? `No articles found in the "${selectedCategory}" category.`
-                    : "No articles available at the moment."}
-                </p>
-                <Button onClick={handleClearCategory} className="btn-primary">
+                <div className="text-gray-600 mb-4 text-lg font-medium">
+                  No articles found. Try adjusting your filters or search query.
+                </div>
+                <Button onClick={() => window.location.reload()} className="btn-primary">
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  View All Articles
+                  Refresh Page
                 </Button>
               </CardContent>
             </Card>
           </motion.div>
         )}
+
+        {/* Footer */}
+        <Footer />
       </main>
-      <Footer />
     </div>
   )
 }
