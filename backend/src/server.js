@@ -1,6 +1,6 @@
 const fastify = require("fastify")({ logger: false })
 const mongoose = require("mongoose")
-const path = require("path")
+require("dotenv").config()
 
 // Import routes
 const articleRoutes = require("./routes/articles")
@@ -8,13 +8,11 @@ const adminRoutes = require("./routes/admin")
 const commentRoutes = require("./routes/comments")
 const trendRoutes = require("./routes/trends")
 
-// Import services
-const { connectDatabase } = require("./config/database")
-
 // Environment variables
 const PORT = process.env.PORT || 10000
 const HOST = process.env.HOST || "0.0.0.0"
 const NODE_ENV = process.env.NODE_ENV || "development"
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/trendwise"
 
 console.log("🚀 [Server] Starting TrendWise Backend Server...")
 console.log(`🌍 [Server] Environment: ${NODE_ENV}`)
@@ -29,6 +27,18 @@ fastify.register(require("@fastify/cors"), {
 
 // Register JSON parser
 fastify.register(require("@fastify/formbody"))
+
+// Database connection function
+async function connectDatabase() {
+  try {
+    console.log("🗄️ [Database] Connecting to MongoDB...")
+    await mongoose.connect(MONGODB_URI)
+    console.log("✅ [Database] Connected to MongoDB successfully")
+  } catch (error) {
+    console.error("❌ [Database] Connection failed:", error.message)
+    throw error
+  }
+}
 
 // Health check endpoint
 fastify.get("/health", async (request, reply) => {
@@ -85,7 +95,7 @@ async function startServer() {
     setTimeout(async () => {
       try {
         console.log("🤖 [Server] Starting TrendBot...")
-        const { trendBot } = require("./services/trendBot")
+        const trendBot = require("./services/trendBot")
 
         if (trendBot && typeof trendBot.start === "function") {
           await trendBot.start()
