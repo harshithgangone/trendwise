@@ -17,7 +17,6 @@ fastify.register(require("@fastify/cors"), {
     "http://localhost:3000",
     "https://trendwise-frontend.vercel.app",
     "https://trendwise.vercel.app",
-    "https://trendwise-almostdone.vercel.app",
     /\.vercel\.app$/,
   ],
   credentials: true,
@@ -42,22 +41,13 @@ async function connectDatabase() {
   }
 }
 
-// Register routes with proper prefixes
-fastify.register(articlesRoutes, { prefix: "/api" })
+// Register routes
+fastify.register(articlesRoutes, { prefix: "/api/articles" })
 fastify.register(adminRoutes, { prefix: "/api/admin" })
 fastify.register(commentsRoutes, { prefix: "/api/comments" })
 fastify.register(trendsRoutes, { prefix: "/api/trends" })
 
 // Health check endpoint
-fastify.get("/", async (request, reply) => {
-  return {
-    status: "OK",
-    message: "TrendWise Backend API",
-    timestamp: new Date().toISOString(),
-    version: "1.0.0",
-  }
-})
-
 fastify.get("/health", async (request, reply) => {
   const health = {
     status: "OK",

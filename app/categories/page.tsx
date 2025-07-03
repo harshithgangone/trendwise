@@ -165,9 +165,11 @@ export default function CategoriesPage() {
     fetchAllArticles()
   }
 
-  const filteredCategories = categories.filter((category) =>
-    category.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredCategories = Array.isArray(categories)
+    ? categories.filter((category) =>
+        category.name.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
