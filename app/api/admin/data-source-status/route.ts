@@ -1,52 +1,50 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
-// Mock data source status
-const mockDataSourceStatus = {
-  isUsingRealData: false,
-  source: "Mock Data",
-  lastUpdate: new Date().toISOString(),
-  health: "healthy",
-}
+const BACKEND_URL = process.env.BACKEND_URL || "https://your-backend-url.onrender.com"
 
-export const dynamic = "force-dynamic"
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
+    console.log("📡 [FRONTEND] Fetching data source status...")
 
-    try {
-      console.log("🔍 [FRONTEND API] Fetching data source status...")
-      const apiUrl = `${backendUrl}/api/admin/data-source-status`
-      console.log("🔗 [FRONTEND API] Data Source Status API URL:", apiUrl)
+    const response = await fetch(`${BACKEND_URL}/api/admin/data-source-status`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "TrendWise-Frontend/1.0",
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(30000),
+    })
 
-      const response = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        signal: AbortSignal.timeout(10000),
+    if (!response.ok) {
+      console.error(`❌ [FRONTEND] Backend error: ${response.status}`)
+
+      // Return fallback data source status
+      return NextResponse.json({
+        success: true,
+        isUsingRealData: false,
+        source: "Fallback Content",
+        gnewsStatus: "Offline",
+        groqStatus: "Offline",
+        unsplashStatus: "Offline",
       })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log("✅ [FRONTEND API] Successfully fetched data source status")
-        return NextResponse.json(data)
-      } else {
-        console.log(`⚠️ [FRONTEND API] Backend responded with status ${response.status}, using mock data source status`)
-        throw new Error(`Backend responded with status: ${response.status}`)
-      }
-    } catch (backendError) {
-      console.log(
-        "⚠️ [FRONTEND API] Backend not available for data source status, using mock data:",
-        backendError instanceof Error ? backendError.message : "Unknown error",
-      )
-
-      return NextResponse.json(mockDataSourceStatus)
     }
+
+    const data = await response.json()
+    console.log("✅ [FRONTEND] Got data source status")
+
+    return NextResponse.json(data)
   } catch (error) {
-    console.error("❌ [FRONTEND API] Error fetching data source status:", error)
-    return NextResponse.json(mockDataSourceStatus, { status: 500 })
+    console.error("❌ [FRONTEND] Error fetching data source status:", error)
+
+    return NextResponse.json({
+      success: true,
+      isUsingRealData: false,
+      source: "Error - Using Fallback",
+      gnewsStatus: "Connection Error",
+      groqStatus: "Connection Error",
+      unsplashStatus: "Connection Error",
+    })
   }
 }
