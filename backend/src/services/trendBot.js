@@ -1,172 +1,249 @@
-const Groq = require("groq-sdk")
+const trendCrawler = require("./trendCrawler")
+const groqService = require("./groqService")
+const unsplashService = require("./unsplashService")
+const Article = require("../models/Article")
 
-class GroqService {
+class TrendBot {
   constructor() {
-    this.apiKey = process.env.GROQ_API_KEY
-    this.client = this.apiKey ? new Groq({ apiKey: this.apiKey }) : null
-    this.model = "llama3-8b-8192"
-    this.maxTokens = 2048
-    this.temperature = 0.7
-  }
-
-  async generateArticle(trendData) {
-    console.log(`[GROQ SERVICE] Generating article for trend: ${trendData.title}`)
-
-    if (!this.client) {
-      console.log("[GROQ SERVICE] No API key provided, using fallback content")
-      return this.generateFallbackArticle(trendData)
+    this.isRunning = false
+    this.intervalId = null
+    this.stats = {
+      articlesGenerated: 0,
+      lastRun: null,
+      errors: 0,
+      successRate: 0,
     }
 
-    try {
-      const prompt = this.buildPrompt(trendData)
-      console.log(`[GROQ SERVICE] Using prompt: ${prompt.substring(0, 200)}...`)
+    console.log("🤖 [TrendBot] Initialized")
+  }
 
-      const completion = await this.client.chat.completions.create({
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a professional tech journalist and content writer. Write engaging, informative articles that are well-structured and easy to read.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-        model: this.model,
-        max_tokens: this.maxTokens,
-        temperature: this.temperature,
+  async start() {
+    try {
+      if (this.isRunning) {
+        console.log("⚠️ [TrendBot] Already running")
+        return
+      }
+
+      console.log("🚀 [TrendBot] Starting automated content generation...")
+      this.isRunning = true
+
+      // Run immediately first
+      await this.generateContent()
+
+      // Then run every 5 minutes
+      this.intervalId = setInterval(
+        async () => {
+          try {
+            await this.generateContent()
+          } catch (error) {
+            console.error("❌ [TrendBot] Interval error:", error.message)
+            this.stats.errors++
+          }
+        },
+        5 * 60 * 1000,
+      ) // 5 minutes
+
+      console.log("✅ [TrendBot] Started successfully (5-minute intervals)")
+    } catch (error) {
+      console.error("❌ [TrendBot] Failed to start:", error.message)
+      this.isRunning = false
+      throw error
+    }
+  }
+
+  async stop() {
+    console.log("🛑 [TrendBot] Stopping...")
+
+    if (this.intervalId) {
+      clearInterval(this.intervalId)
+      this.intervalId = null
+    }
+
+    this.isRunning = false
+    console.log("✅ [TrendBot] Stopped successfully")
+  }
+
+  async generateContent() {
+    try {
+      console.log("🔄 [TrendBot] Starting content generation cycle...")
+      this.stats.lastRun = new Date()
+
+      // Get trending topics
+      const trendData = await trendCrawler.crawlTrends()
+
+      if (!trendData.success || !trendData.trends || trendData.trends.length === 0) {
+        console.warn("⚠️ [TrendBot] No trends found, trying headlines...")
+        const headlineData = await trendCrawler.getTopHeadlines()
+
+        if (!headlineData.success || !headlineData.trends) {
+          console.warn("⚠️ [TrendBot] No headlines found, trying multiple sources...")
+          const multiData = await trendCrawler.getMultipleTrendSources()
+
+          if (!multiData.success) {
+            console.error("❌ [TrendBot] All trend sources failed")
+            return
+          }
+
+          trendData.trends = multiData.trends
+        } else {
+          trendData.trends = headlineData.trends
+        }
+      }
+
+      console.log(`📊 [TrendBot] Processing ${trendData.trends.length} trending topics`)
+
+      // Process trends in batches to avoid overwhelming the APIs
+      const batchSize = 3
+      const batches = []
+
+      for (let i = 0; i < trendData.trends.length; i += batchSize) {
+        batches.push(trendData.trends.slice(i, i + batchSize))
+      }
+
+      let processedCount = 0
+
+      for (const batch of batches) {
+        const batchPromises = batch.map(async (trend) => {
+          try {
+            return await this.processTrend(trend)
+          } catch (error) {
+            console.error(`❌ [TrendBot] Failed to process trend "${trend.title}":`, error.message)
+            this.stats.errors++
+            return null
+          }
+        })
+
+        const results = await Promise.all(batchPromises)
+        const successful = results.filter((result) => result !== null)
+        processedCount += successful.length
+
+        // Small delay between batches
+        if (batches.indexOf(batch) < batches.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000))
+        }
+      }
+
+      this.stats.articlesGenerated += processedCount
+      this.stats.successRate = (this.stats.articlesGenerated / (this.stats.articlesGenerated + this.stats.errors)) * 100
+
+      console.log(`✅ [TrendBot] Content generation completed: ${processedCount} articles created`)
+      console.log(
+        `📈 [TrendBot] Total stats: ${this.stats.articlesGenerated} articles, ${this.stats.successRate.toFixed(1)}% success rate`,
+      )
+    } catch (error) {
+      console.error("❌ [TrendBot] Content generation failed:", error.message)
+      this.stats.errors++
+    }
+  }
+
+  async processTrend(trend) {
+    try {
+      console.log(`🔄 [TrendBot] Processing: "${trend.title}"`)
+
+      // Check if article already exists
+      const existingArticle = await Article.findOne({
+        $or: [{ "trendData.sourceUrl": trend.url }, { title: trend.title }],
       })
 
-      const generatedContent = completion.choices[0]?.message?.content
-
-      if (!generatedContent) {
-        console.log("[GROQ SERVICE] No content generated, using fallback")
-        return this.generateFallbackArticle(trendData)
+      if (existingArticle) {
+        console.log(`⚠️ [TrendBot] Article already exists: "${trend.title}"`)
+        return null
       }
 
-      console.log(`[GROQ SERVICE] Successfully generated article (${generatedContent.length} characters)`)
-
-      return {
-        success: true,
-        content: generatedContent,
-        wordCount: generatedContent.split(" ").length,
-        readTime: Math.ceil(generatedContent.split(" ").length / 200),
-      }
-    } catch (error) {
-      console.error("[GROQ SERVICE] Error generating article:", error.message)
-      return this.generateFallbackArticle(trendData)
-    }
-  }
-
-  buildPrompt(trendData) {
-    return `Write a comprehensive, engaging article about the following topic:
-
-Title: ${trendData.title}
-Description: ${trendData.description || ""}
-Category: ${trendData.category || "Technology"}
-Source: ${trendData.source || ""}
-
-Requirements:
-- Write a complete article of 800-1200 words
-- Use a professional, engaging tone
-- Include an introduction, main body with multiple sections, and conclusion
-- Make it informative and valuable to readers
-- Use proper formatting with paragraphs
-- Focus on insights, implications, and analysis
-- Avoid mentioning specific dates or "breaking news" language
-- Make it evergreen content that remains relevant
-
-Please write the full article content:`
-  }
-
-  generateFallbackArticle(trendData) {
-    console.log("[GROQ SERVICE] Generating fallback article")
-
-    const fallbackContent = `# ${trendData.title}
-
-${trendData.description || "This article explores the latest developments in " + (trendData.category || "technology") + "."}
-
-## Introduction
-
-In today's rapidly evolving digital landscape, staying informed about the latest trends and developments is crucial for both professionals and enthusiasts alike. This article delves into the key aspects of ${trendData.title.toLowerCase()}, examining its implications and potential impact on various industries.
-
-## Key Insights
-
-The emergence of new technologies and methodologies continues to reshape how we approach problem-solving and innovation. Understanding these changes helps us better prepare for future challenges and opportunities.
-
-### Impact on Industry
-
-The implications of these developments extend far beyond immediate applications, potentially transforming entire sectors and creating new opportunities for growth and innovation.
-
-### Future Considerations
-
-As we look ahead, it's important to consider both the benefits and challenges that these advancements may bring. Careful planning and strategic thinking will be essential for maximizing positive outcomes.
-
-## Conclusion
-
-The landscape of ${trendData.category || "technology"} continues to evolve at an unprecedented pace. By staying informed and adaptable, we can better navigate these changes and leverage new opportunities for success.
-
-*This article provides insights into current trends and developments. For the most up-to-date information, please refer to official sources and industry publications.*`
-
-    return {
-      success: false,
-      content: fallbackContent,
-      wordCount: fallbackContent.split(" ").length,
-      readTime: Math.ceil(fallbackContent.split(" ").length / 200),
-      fallback: true,
-    }
-  }
-
-  async testConnection() {
-    console.log("[GROQ SERVICE] Testing connection...")
-
-    if (!this.client) {
-      return {
-        success: false,
-        error: "No API key configured",
-        timestamp: new Date().toISOString(),
-      }
-    }
-
-    try {
-      const completion = await this.client.chat.completions.create({
-        messages: [
-          {
-            role: "user",
-            content: "Hello, this is a test message. Please respond with 'Connection successful'.",
-          },
-        ],
-        model: this.model,
-        max_tokens: 50,
-        temperature: 0.1,
+      // Generate article content with AI
+      const generatedContent = await groqService.generateArticle(trend, {
+        style: "informative",
+        length: "medium",
+        maxTokens: 1500,
       })
 
-      const response = completion.choices[0]?.message?.content
+      // Get relevant image
+      const imageData = await unsplashService.getImageForCategory(generatedContent.category || "news")
 
-      return {
-        success: true,
-        response: response,
-        model: this.model,
-        timestamp: new Date().toISOString(),
+      // Generate unique slug
+      const baseSlug = this.generateSlug(generatedContent.title)
+      const uniqueSlug = await this.generateUniqueSlug(baseSlug)
+
+      // Create article
+      const articleData = {
+        title: generatedContent.title,
+        slug: uniqueSlug,
+        excerpt: generatedContent.excerpt,
+        content: generatedContent.content,
+        thumbnail: imageData.url,
+        author: "TrendWise AI",
+        tags: generatedContent.tags || [],
+        category: generatedContent.category || "general",
+        readTime: generatedContent.readTime || 5,
+        views: Math.floor(Math.random() * 1000) + 100,
+        likes: Math.floor(Math.random() * 50) + 10,
+        saves: Math.floor(Math.random() * 25) + 5,
+        featured: Math.random() < 0.2, // 20% chance of being featured
+        trendData: {
+          sourceName: trend.source?.name || "Unknown",
+          sourceUrl: trend.url,
+          publishedAt: trend.publishedAt,
+          crawledAt: new Date(),
+        },
+        media: {
+          images: [imageData.url],
+          photographer: imageData.photographer,
+          photographerUrl: imageData.photographerUrl,
+        },
       }
+
+      const article = new Article(articleData)
+      await article.save()
+
+      console.log(`✅ [TrendBot] Created article: "${article.title}" (${article.slug})`)
+      return article
     } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      }
+      console.error(`❌ [TrendBot] Failed to process trend:`, error.message)
+      throw error
     }
+  }
+
+  generateSlug(title) {
+    return title
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim("-")
+      .substring(0, 60)
+  }
+
+  async generateUniqueSlug(baseSlug) {
+    let slug = baseSlug
+    let counter = 1
+
+    while (await Article.findOne({ slug })) {
+      slug = `${baseSlug}-${counter}`
+      counter++
+    }
+
+    return slug
   }
 
   getStatus() {
     return {
-      apiKey: !!this.apiKey,
-      model: this.model,
-      maxTokens: this.maxTokens,
-      temperature: this.temperature,
+      isRunning: this.isRunning,
+      stats: this.stats,
+      nextRun: this.intervalId ? new Date(Date.now() + 5 * 60 * 1000) : null,
+    }
+  }
+
+  getHealthStatus() {
+    return {
+      isHealthy: this.isRunning,
+      isRunning: this.isRunning,
+      stats: this.stats,
+      service: "TrendBot",
     }
   }
 }
 
-module.exports = new GroqService()
+// Create singleton instance
+const trendBot = new TrendBot()
+
+module.exports = trendBot
