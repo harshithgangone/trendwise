@@ -1,168 +1,233 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
+import { useSession } from "next-auth/react"
+import { useToast } from "@/hooks/use-toast"
 
 interface UserPreferences {
-  likedArticles: string[]
   savedArticles: string[]
+  likedArticles: string[]
+  recentlyViewed: string[]
+  categories: string[]
+  notifications: boolean
 }
 
-interface UseUserPreferencesReturn {
-  preferences: UserPreferences
-  isLiked: (articleId: string) => boolean
-  isSaved: (articleId: string) => boolean
-  toggleLike: (articleId: string) => Promise<boolean>
-  toggleSave: (articleId: string) => Promise<boolean>
-  loading: boolean
+const DEFAULT_PREFERENCES: UserPreferences = {
+  savedArticles: [],
+  likedArticles: [],
+  recentlyViewed: [],
+  categories: [],
+  notifications: true,
 }
 
-export function useUserPreferences(userId?: string): UseUserPreferencesReturn {
-  const [preferences, setPreferences] = useState<UserPreferences>({
-    likedArticles: [],
-    savedArticles: [],
-  })
-  const [loading, setLoading] = useState(false)
+export function useUserPreferences() {
+  const { data: session } = useSession()
+  const { toast } = useToast()
+  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES)
+  const [loading, setLoading] = useState(true)
 
   // Load preferences from localStorage on mount
   useEffect(() => {
-    const stored = localStorage.getItem("userPreferences")
-    if (stored) {
+    if (session?.user?.email) {
       try {
-        const parsed = JSON.parse(stored)
-        setPreferences(parsed)
+        const stored = localStorage.getItem(`preferences_${session.user.email}`)
+        if (stored) {
+          const parsedPreferences = JSON.parse(stored)
+          // Ensure all arrays exist to prevent undefined errors
+          setPreferences({
+            savedArticles: parsedPreferences.savedArticles || [],
+            likedArticles: parsedPreferences.likedArticles || [],
+            recentlyViewed: parsedPreferences.recentlyViewed || [],
+            categories: parsedPreferences.categories || [],
+            notifications: parsedPreferences.notifications !== undefined ? parsedPreferences.notifications : true,
+          })
+        }
       } catch (error) {
-        console.error("Error parsing stored preferences:", error)
+        console.error("Error loading preferences:", error)
+        setPreferences(DEFAULT_PREFERENCES)
       }
+    } else {
+      setPreferences(DEFAULT_PREFERENCES)
     }
-  }, [])
+    setLoading(false)
+  }, [session?.user?.email])
 
-  // Save preferences to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem("userPreferences", JSON.stringify(preferences))
-  }, [preferences])
+  // Save preferences to localStorage
+  const savePreferences = useCallback(
+    (newPreferences: UserPreferences) => {
+      if (session?.user?.email) {
+        try {
+          localStorage.setItem(`preferences_${session.user.email}`, JSON.stringify(newPreferences))
+          setPreferences(newPreferences)
+        } catch (error) {
+          console.error("Error saving preferences:", error)
+          toast({
+            title: "Error",
+            description: "Failed to save preferences",
+            variant: "destructive",
+          })
+        }
+      }
+    },
+    [session?.user?.email, toast],
+  )
 
-  const isLiked = (articleId: string): boolean => {
-    return preferences.likedArticles.includes(articleId)
-  }
-
-  const isSaved = (articleId: string): boolean => {
-    return preferences.savedArticles.includes(articleId)
-  }
-
-  const toggleLike = async (articleId: string): Promise<boolean> => {
-    const wasLiked = isLiked(articleId)
-
-    // Optimistic update
-    setPreferences((prev) => ({
-      ...prev,
-      likedArticles: wasLiked
-        ? prev.likedArticles.filter((id) => id !== articleId)
-        : [...prev.likedArticles, articleId],
-    }))
-
-    try {
-      setLoading(true)
-      const response = await fetch(`/api/articles/${articleId}/like`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: userId || "anonymous",
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!data.success) {
-        // Revert optimistic update on failure
-        setPreferences((prev) => ({
-          ...prev,
-          likedArticles: wasLiked
-            ? [...prev.likedArticles, articleId]
-            : prev.likedArticles.filter((id) => id !== articleId),
-        }))
-        throw new Error(data.error || "Failed to toggle like")
+  // Save article
+  const saveArticle = useCallback(
+    async (articleId: string): Promise<boolean> => {
+      if (!session?.user) {
+        toast({
+          title: "Sign in required",
+          description: "Please sign in to save articles",
+          variant: "destructive",
+        })
+        return false
       }
 
-      return data.liked
-    } catch (error) {
-      console.error("Error toggling like:", error)
-      // Revert optimistic update on error
-      setPreferences((prev) => ({
-        ...prev,
-        likedArticles: wasLiked
-          ? [...prev.likedArticles, articleId]
-          : prev.likedArticles.filter((id) => id !== articleId),
-      }))
-      return wasLiked
-    } finally {
-      setLoading(false)
-    }
-  }
+      try {
+        const currentSaved = preferences.savedArticles || []
+        const isCurrentlySaved = currentSaved.includes(articleId)
+        const newSavedArticles = isCurrentlySaved
+          ? currentSaved.filter((id) => id !== articleId)
+          : [...currentSaved, articleId]
 
-  const toggleSave = async (articleId: string): Promise<boolean> => {
-    if (!userId) {
-      throw new Error("User must be logged in to save articles")
-    }
+        const newPreferences = {
+          ...preferences,
+          savedArticles: newSavedArticles,
+        }
 
-    const wasSaved = isSaved(articleId)
+        savePreferences(newPreferences)
 
-    // Optimistic update
-    setPreferences((prev) => ({
-      ...prev,
-      savedArticles: wasSaved
-        ? prev.savedArticles.filter((id) => id !== articleId)
-        : [...prev.savedArticles, articleId],
-    }))
+        // Try to update backend
+        try {
+          const response = await fetch(`/api/articles/save/${articleId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: isCurrentlySaved ? "unsave" : "save" }),
+          })
 
-    try {
-      setLoading(true)
-      const response = await fetch(`/api/articles/${articleId}/save`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId,
-        }),
-      })
+          if (!response.ok) {
+            console.log("Backend save failed, but local state updated")
+          }
+        } catch (error) {
+          console.log("Backend unavailable for save, but local state updated")
+        }
 
-      const data = await response.json()
+        return !isCurrentlySaved
+      } catch (error) {
+        console.error("Error saving article:", error)
+        toast({
+          title: "Error",
+          description: "Failed to save article",
+          variant: "destructive",
+        })
+        return false
+      }
+    },
+    [preferences, savePreferences, session?.user, toast],
+  )
 
-      if (!data.success) {
-        // Revert optimistic update on failure
-        setPreferences((prev) => ({
-          ...prev,
-          savedArticles: wasSaved
-            ? [...prev.savedArticles, articleId]
-            : prev.savedArticles.filter((id) => id !== articleId),
-        }))
-        throw new Error(data.error || "Failed to toggle save")
+  // Like article
+  const likeArticle = useCallback(
+    async (articleId: string): Promise<boolean> => {
+      if (!session?.user) {
+        toast({
+          title: "Sign in required",
+          description: "Please sign in to like articles",
+          variant: "destructive",
+        })
+        return false
       }
 
-      return data.saved
-    } catch (error) {
-      console.error("Error toggling save:", error)
-      // Revert optimistic update on error
-      setPreferences((prev) => ({
-        ...prev,
-        savedArticles: wasSaved
-          ? [...prev.savedArticles, articleId]
-          : prev.savedArticles.filter((id) => id !== articleId),
-      }))
-      return wasSaved
-    } finally {
-      setLoading(false)
-    }
-  }
+      try {
+        const currentLiked = preferences.likedArticles || []
+        const isCurrentlyLiked = currentLiked.includes(articleId)
+        const newLikedArticles = isCurrentlyLiked
+          ? currentLiked.filter((id) => id !== articleId)
+          : [...currentLiked, articleId]
+
+        const newPreferences = {
+          ...preferences,
+          likedArticles: newLikedArticles,
+        }
+
+        savePreferences(newPreferences)
+
+        // Try to update backend
+        try {
+          const response = await fetch(`/api/articles/like/${articleId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: isCurrentlyLiked ? "unlike" : "like" }),
+          })
+
+          if (!response.ok) {
+            console.log("Backend like failed, but local state updated")
+          }
+        } catch (error) {
+          console.log("Backend unavailable for like, but local state updated")
+        }
+
+        return !isCurrentlyLiked
+      } catch (error) {
+        console.error("Error liking article:", error)
+        toast({
+          title: "Error",
+          description: "Failed to like article",
+          variant: "destructive",
+        })
+        return false
+      }
+    },
+    [preferences, savePreferences, session?.user, toast],
+  )
+
+  // Add to recently viewed
+  const addToRecentlyViewed = useCallback(
+    (articleId: string) => {
+      if (!session?.user || !articleId) return
+
+      try {
+        const currentViewed = preferences.recentlyViewed || []
+        const newRecentlyViewed = [articleId, ...currentViewed.filter((id) => id !== articleId)].slice(0, 10)
+
+        const newPreferences = {
+          ...preferences,
+          recentlyViewed: newRecentlyViewed,
+        }
+
+        savePreferences(newPreferences)
+      } catch (error) {
+        console.error("Error adding to recently viewed:", error)
+      }
+    },
+    [preferences, savePreferences, session?.user],
+  )
+
+  // Check if article is saved
+  const isArticleSaved = useCallback(
+    (articleId: string): boolean => {
+      return (preferences.savedArticles || []).includes(articleId)
+    },
+    [preferences.savedArticles],
+  )
+
+  // Check if article is liked
+  const isArticleLiked = useCallback(
+    (articleId: string): boolean => {
+      return (preferences.likedArticles || []).includes(articleId)
+    },
+    [preferences.likedArticles],
+  )
 
   return {
     preferences,
-    isLiked,
-    isSaved,
-    toggleLike,
-    toggleSave,
     loading,
+    saveArticle,
+    likeArticle,
+    addToRecentlyViewed,
+    isArticleSaved,
+    isArticleLiked,
+    savePreferences,
   }
 }

@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         const data = await response.json()
         console.log(`✅ [FRONTEND API] Successfully fetched article: ${data.article?.title || slug}`)
 
-        // Ensure proper article structure with zero initial engagement
+        // Ensure proper article structure
         if (data.article) {
           data.article = {
             ...data.article,
@@ -40,6 +40,9 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
             thumbnail: data.article.thumbnail || data.article.imageUrl || "/placeholder.svg?height=400&width=600",
             author: data.article.author || "TrendWise AI",
             readTime: data.article.readTime || 5,
+            content:
+              data.article.content ||
+              `<h2>Article Content</h2><p>The content for "${data.article.title}" is currently being processed by our AI system. Please check back shortly for the complete article.</p>`,
           }
         }
 
@@ -59,8 +62,8 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
         excerpt:
           "This article is currently being processed by our AI system. Please check back shortly for the complete content.",
         content: `
-          <h2>Article Loading</h2>
-          <p>We're currently processing this article with our AI-powered content system. The article "${slug.replace(/-/g, " ")}" will be available shortly.</p>
+          <h2>${slug.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</h2>
+          <p>We're currently processing this article with our AI-powered content system. The article will be available shortly with comprehensive information on this topic.</p>
           
           <h3>What's Happening?</h3>
           <p>Our TrendBot is working to:</p>
