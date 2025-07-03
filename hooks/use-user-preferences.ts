@@ -1,229 +1,168 @@
 "use client"
 
-import { useState } from "react"
-import { useSession } from "next-auth/react"
+import { useState, useEffect } from "react"
 
 interface UserPreferences {
-  [articleId: string]: {
-    liked: boolean
-    saved: boolean
-  }
+  likedArticles: string[]
+  savedArticles: string[]
 }
 
 interface UseUserPreferencesReturn {
   preferences: UserPreferences
-  isLoading: boolean
-  likeArticle: (articleId: string) => Promise<{ success: boolean; liked: boolean; likes: number }>
-  saveArticle: (articleId: string) => Promise<{ success: boolean; saved: boolean; saves: number }>
-  refreshPreferences: (articleIds: string[]) => Promise<void>
+  isLiked: (articleId: string) => boolean
+  isSaved: (articleId: string) => boolean
+  toggleLike: (articleId: string) => Promise<boolean>
+  toggleSave: (articleId: string) => Promise<boolean>
+  loading: boolean
 }
 
-export function useUserPreferences(): UseUserPreferencesReturn {
-  const { data: session } = useSession()
-  const [preferences, setPreferences] = useState<UserPreferences>({})
-  const [isLoading, setIsLoading] = useState(false)
+export function useUserPreferences(userId?: string): UseUserPreferencesReturn {
+  const [preferences, setPreferences] = useState<UserPreferences>({
+    likedArticles: [],
+    savedArticles: [],
+  })
+  const [loading, setLoading] = useState(false)
 
-  const refreshPreferences = async (articleIds: string[]) => {
-    if (!session?.user?.email || articleIds.length === 0) return
+  // Load preferences from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem("userPreferences")
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        setPreferences(parsed)
+      } catch (error) {
+        console.error("Error parsing stored preferences:", error)
+      }
+    }
+  }, [])
+
+  // Save preferences to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("userPreferences", JSON.stringify(preferences))
+  }, [preferences])
+
+  const isLiked = (articleId: string): boolean => {
+    return preferences.likedArticles.includes(articleId)
+  }
+
+  const isSaved = (articleId: string): boolean => {
+    return preferences.savedArticles.includes(articleId)
+  }
+
+  const toggleLike = async (articleId: string): Promise<boolean> => {
+    const wasLiked = isLiked(articleId)
+
+    // Optimistic update
+    setPreferences((prev) => ({
+      ...prev,
+      likedArticles: wasLiked
+        ? prev.likedArticles.filter((id) => id !== articleId)
+        : [...prev.likedArticles, articleId],
+    }))
 
     try {
-      setIsLoading(true)
-      console.log(`🔄 [USER PREFERENCES] Refreshing preferences for ${articleIds.length} articles`)
-
-      const response = await fetch(
-        `/api/users/${encodeURIComponent(session.user.email)}/preferences?articleIds=${articleIds.join(",")}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
+      setLoading(true)
+      const response = await fetch(`/api/articles/${articleId}/like`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      )
+        body: JSON.stringify({
+          userId: userId || "anonymous",
+        }),
+      })
 
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          console.log(`✅ [USER PREFERENCES] Loaded preferences for ${Object.keys(data.preferences).length} articles`)
-          setPreferences((prev) => ({ ...prev, ...data.preferences }))
-        }
+      const data = await response.json()
+
+      if (!data.success) {
+        // Revert optimistic update on failure
+        setPreferences((prev) => ({
+          ...prev,
+          likedArticles: wasLiked
+            ? [...prev.likedArticles, articleId]
+            : prev.likedArticles.filter((id) => id !== articleId),
+        }))
+        throw new Error(data.error || "Failed to toggle like")
       }
+
+      return data.liked
     } catch (error) {
-      console.error("❌ [USER PREFERENCES] Error refreshing preferences:", error)
+      console.error("Error toggling like:", error)
+      // Revert optimistic update on error
+      setPreferences((prev) => ({
+        ...prev,
+        likedArticles: wasLiked
+          ? [...prev.likedArticles, articleId]
+          : prev.likedArticles.filter((id) => id !== articleId),
+      }))
+      return wasLiked
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
-  const likeArticle = async (articleId: string) => {
+  const toggleSave = async (articleId: string): Promise<boolean> => {
+    if (!userId) {
+      throw new Error("User must be logged in to save articles")
+    }
+
+    const wasSaved = isSaved(articleId)
+
+    // Optimistic update
+    setPreferences((prev) => ({
+      ...prev,
+      savedArticles: wasSaved
+        ? prev.savedArticles.filter((id) => id !== articleId)
+        : [...prev.savedArticles, articleId],
+    }))
+
     try {
-      console.log(`👍 [USER PREFERENCES] Liking article: ${articleId}`)
-
-      // Optimistic update
-      const currentLiked = preferences[articleId]?.liked || false
-      setPreferences((prev) => ({
-        ...prev,
-        [articleId]: {
-          ...prev[articleId],
-          liked: !currentLiked,
-        },
-      }))
-
-      const response = await fetch(`/api/articles/like/${articleId}`, {
+      setLoading(true)
+      const response = await fetch(`/api/articles/${articleId}/save`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          userId,
+        }),
       })
 
       const data = await response.json()
 
-      if (data.success) {
-        console.log(`✅ [USER PREFERENCES] Like successful: ${data.liked ? "liked" : "unliked"}`)
-
-        // Update with server response
-        setPreferences((prev) => ({
-          ...prev,
-          [articleId]: {
-            ...prev[articleId],
-            liked: data.liked,
-          },
-        }))
-
-        return {
-          success: true,
-          liked: data.liked,
-          likes: data.likes,
-        }
-      } else {
+      if (!data.success) {
         // Revert optimistic update on failure
         setPreferences((prev) => ({
           ...prev,
-          [articleId]: {
-            ...prev[articleId],
-            liked: currentLiked,
-          },
+          savedArticles: wasSaved
+            ? [...prev.savedArticles, articleId]
+            : prev.savedArticles.filter((id) => id !== articleId),
         }))
-
-        console.error("❌ [USER PREFERENCES] Like failed:", data.error)
-        return {
-          success: false,
-          liked: currentLiked,
-          likes: 0,
-        }
+        throw new Error(data.error || "Failed to toggle save")
       }
+
+      return data.saved
     } catch (error) {
-      console.error("❌ [USER PREFERENCES] Error liking article:", error)
-
+      console.error("Error toggling save:", error)
       // Revert optimistic update on error
-      const currentLiked = preferences[articleId]?.liked || false
       setPreferences((prev) => ({
         ...prev,
-        [articleId]: {
-          ...prev[articleId],
-          liked: !currentLiked,
-        },
+        savedArticles: wasSaved
+          ? [...prev.savedArticles, articleId]
+          : prev.savedArticles.filter((id) => id !== articleId),
       }))
-
-      return {
-        success: false,
-        liked: !currentLiked,
-        likes: 0,
-      }
-    }
-  }
-
-  const saveArticle = async (articleId: string) => {
-    if (!session?.user?.email) {
-      console.log("❌ [USER PREFERENCES] No user session for saving")
-      return {
-        success: false,
-        saved: false,
-        saves: 0,
-      }
-    }
-
-    try {
-      console.log(`💾 [USER PREFERENCES] Saving article: ${articleId}`)
-
-      // Optimistic update
-      const currentSaved = preferences[articleId]?.saved || false
-      setPreferences((prev) => ({
-        ...prev,
-        [articleId]: {
-          ...prev[articleId],
-          saved: !currentSaved,
-        },
-      }))
-
-      const response = await fetch(`/api/articles/save/${articleId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        console.log(`✅ [USER PREFERENCES] Save successful: ${data.saved ? "saved" : "unsaved"}`)
-
-        // Update with server response
-        setPreferences((prev) => ({
-          ...prev,
-          [articleId]: {
-            ...prev[articleId],
-            saved: data.saved,
-          },
-        }))
-
-        return {
-          success: true,
-          saved: data.saved,
-          saves: data.saves,
-        }
-      } else {
-        // Revert optimistic update on failure
-        setPreferences((prev) => ({
-          ...prev,
-          [articleId]: {
-            ...prev[articleId],
-            saved: currentSaved,
-          },
-        }))
-
-        console.error("❌ [USER PREFERENCES] Save failed:", data.error)
-        return {
-          success: false,
-          saved: currentSaved,
-          saves: 0,
-        }
-      }
-    } catch (error) {
-      console.error("❌ [USER PREFERENCES] Error saving article:", error)
-
-      // Revert optimistic update on error
-      const currentSaved = preferences[articleId]?.saved || false
-      setPreferences((prev) => ({
-        ...prev,
-        [articleId]: {
-          ...prev[articleId],
-          saved: !currentSaved,
-        },
-      }))
-
-      return {
-        success: false,
-        saved: !currentSaved,
-        saves: 0,
-      }
+      return wasSaved
+    } finally {
+      setLoading(false)
     }
   }
 
   return {
     preferences,
-    isLoading,
-    likeArticle,
-    saveArticle,
-    refreshPreferences,
+    isLiked,
+    isSaved,
+    toggleLike,
+    toggleSave,
+    loading,
   }
 }

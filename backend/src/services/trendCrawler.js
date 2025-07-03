@@ -18,6 +18,7 @@ class TrendCrawler {
 
     try {
       // Try GNews first (most reliable)
+      console.log("📡 [TrendCrawler] Fetching trends from GNews...")
       const gnewsResult = await GNewsService.getTrendingTopics(limit)
 
       if (gnewsResult.success && gnewsResult.trends && gnewsResult.trends.length > 0) {
@@ -33,6 +34,7 @@ class TrendCrawler {
         }
       }
 
+      console.log("⚠️ [TrendCrawler] GNews returned no valid trends, trying alternative sources...")
       throw new Error("GNews API returned no valid trends")
     } catch (error) {
       console.error("❌ [TrendCrawler] GNews crawling failed:", error.message)
@@ -272,109 +274,147 @@ class TrendCrawler {
   }
 
   categorizeByTitle(title) {
-    const lowerTitle = title.toLowerCase();
-    if (lowerTitle.includes("ai") || lowerTitle.includes("artificial intelligence") || lowerTitle.includes("machine learning")) return "Technology";
-    if (lowerTitle.includes("business") || lowerTitle.includes("economy") || lowerTitle.includes("finance") || lowerTitle.includes("market")) return "Business";
-    if (lowerTitle.includes("health") || lowerTitle.includes("medical") || lowerTitle.includes("disease")) return "Health";
-    if (lowerTitle.includes("science") || lowerTitle.includes("discovery") || lowerTitle.includes("research")) return "Science";
-    if (lowerTitle.includes("entertainment") || lowerTitle.includes("movie") || lowerTitle.includes("music")) return "Entertainment";
-    if (lowerTitle.includes("sport") || lowerTitle.includes("game") || lowerTitle.includes("team")) return "Sports";
-    if (lowerTitle.includes("environment") || lowerTitle.includes("climate") || lowerTitle.includes("sustainability")) return "Environment";
-    if (lowerTitle.includes("politics") || lowerTitle.includes("government") || lowerTitle.includes("election")) return "Politics";
-    return "General";
+    const lowerTitle = title.toLowerCase()
+    if (
+      lowerTitle.includes("ai") ||
+      lowerTitle.includes("artificial intelligence") ||
+      lowerTitle.includes("machine learning")
+    )
+      return "Technology"
+    if (
+      lowerTitle.includes("business") ||
+      lowerTitle.includes("economy") ||
+      lowerTitle.includes("finance") ||
+      lowerTitle.includes("market")
+    )
+      return "Business"
+    if (lowerTitle.includes("health") || lowerTitle.includes("medical") || lowerTitle.includes("disease"))
+      return "Health"
+    if (lowerTitle.includes("science") || lowerTitle.includes("discovery") || lowerTitle.includes("research"))
+      return "Science"
+    if (lowerTitle.includes("entertainment") || lowerTitle.includes("movie") || lowerTitle.includes("music"))
+      return "Entertainment"
+    if (lowerTitle.includes("sport") || lowerTitle.includes("game") || lowerTitle.includes("team")) return "Sports"
+    if (lowerTitle.includes("environment") || lowerTitle.includes("climate") || lowerTitle.includes("sustainability"))
+      return "Environment"
+    if (lowerTitle.includes("politics") || lowerTitle.includes("government") || lowerTitle.includes("election"))
+      return "Politics"
+    return "General"
   }
 
   extractTagsFromTitle(title) {
-    const tags = new Set();
-    const words = title.toLowerCase().split(/\s|\W+/);
-    const commonKeywords = ["ai", "tech", "startup", "innovation", "future", "health", "science", "business", "market", "economy", "environment", "climate", "digital"];
-    words.forEach(word => {
-      if (commonKeywords.includes(word)) tags.add(word);
-    });
-    return Array.from(tags);
+    const tags = new Set()
+    const words = title.toLowerCase().split(/\s|\W+/)
+    const commonKeywords = [
+      "ai",
+      "tech",
+      "startup",
+      "innovation",
+      "future",
+      "health",
+      "science",
+      "business",
+      "market",
+      "economy",
+      "environment",
+      "climate",
+      "digital",
+    ]
+    words.forEach((word) => {
+      if (commonKeywords.includes(word)) tags.add(word)
+    })
+    return Array.from(tags)
   }
 
   cleanTitle(title) {
     // Remove unwanted prefixes/suffixes often found in RSS feeds
-    return title.replace(/^(<!\[CDATA\[)?(.*?)(]\]>)?$/, '$2').trim();
+    return title.replace(/^(<!\[CDATA\[)?(.*?)(]\]>)?$/, "$2").trim()
   }
 
   cleanDescription(description) {
     // Remove HTML tags and common RSS artifacts
-    return description.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, ' ').trim();
+    return description
+      .replace(/<[^>]*>?/gm, "")
+      .replace(/&nbsp;/g, " ")
+      .trim()
   }
 
   removeDuplicates(trends) {
-    const uniqueUrls = new Set();
-    const uniqueTrends = [];
+    const uniqueUrls = new Set()
+    const uniqueTrends = []
     for (const trend of trends) {
       if (!uniqueUrls.has(trend.url)) {
-        uniqueUrls.add(trend.url);
-        uniqueTrends.push(trend);
+        uniqueUrls.add(trend.url)
+        uniqueTrends.push(trend)
       }
     }
-    return uniqueTrends;
+    return uniqueTrends
   }
 
   getFallbackTrends(limit = 5) {
     const fallbackData = [
       {
         title: "Latest Developments in Artificial Intelligence Technology",
-        description: "Researchers at leading universities have made significant strides in developing more efficient AI algorithms, promising breakthroughs in various industries.",
+        description:
+          "Researchers at leading universities have made significant strides in developing more efficient AI algorithms, promising breakthroughs in various industries.",
         category: "Technology",
         tags: ["AI", "Technology", "Innovation"],
         source: "fallback",
         publishedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
         score: 85,
-        url: "#",
-        image: "/placeholder.svg?height=400&width=600"
+        url: "#fallback-ai-" + Date.now(),
+        image: "/placeholder.svg?height=400&width=600",
       },
       {
         title: "Sustainable Business Practices Gaining Momentum",
-        description: "More companies are adopting eco-friendly strategies and renewable energy sources, driven by consumer demand and regulatory changes.",
+        description:
+          "More companies are adopting eco-friendly strategies and renewable energy sources, driven by consumer demand and regulatory changes.",
         category: "Business",
         tags: ["Sustainability", "Business", "Environment"],
         source: "fallback",
         publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
         score: 80,
-        url: "#",
-        image: "/placeholder.svg?height=400&width=600"
+        url: "#fallback-business-" + Date.now(),
+        image: "/placeholder.svg?height=400&width=600",
       },
       {
         title: "Revolutionary Health Tech Innovations",
-        description: "New wearable devices and AI-powered diagnostic tools are transforming healthcare, offering personalized treatment and early detection.",
+        description:
+          "New wearable devices and AI-powered diagnostic tools are transforming healthcare, offering personalized treatment and early detection.",
         category: "Health",
         tags: ["Health", "Technology", "Innovation"],
         source: "fallback",
         publishedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
         score: 90,
-        url: "#",
-        image: "/placeholder.svg?height=400&width=600"
+        url: "#fallback-health-" + Date.now(),
+        image: "/placeholder.svg?height=400&width=600",
       },
       {
         title: "Exploring the Depths of Space: New Discoveries",
-        description: "Astronomers have announced the discovery of several exoplanets with potential for life, expanding our understanding of the universe.",
+        description:
+          "Astronomers have announced the discovery of several exoplanets with potential for life, expanding our understanding of the universe.",
         category: "Science",
         tags: ["Space", "Science", "Astronomy"],
         source: "fallback",
         publishedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days ago
         score: 88,
-        url: "#",
-        image: "/placeholder.svg?height=400&width=600"
+        url: "#fallback-space-" + Date.now(),
+        image: "/placeholder.svg?height=400&width=600",
       },
       {
         title: "The Rise of Quantum Computing: What it Means for the Future",
-        description: "Experts predict quantum computing will revolutionize industries from medicine to finance, offering unprecedented processing power.",
+        description:
+          "Experts predict quantum computing will revolutionize industries from medicine to finance, offering unprecedented processing power.",
         category: "Technology",
         tags: ["Quantum Computing", "Technology", "Future"],
         source: "fallback",
         publishedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
         score: 92,
-        url: "#",
-        image: "/placeholder.svg?height=400&width=600"
+        url: "#fallback-quantum-" + Date.now(),
+        image: "/placeholder.svg?height=400&width=600",
       },
-    ];
-    return fallbackData.slice(0, limit);
+    ]
+    return fallbackData.slice(0, limit)
   }
 
   async healthCheck() {

@@ -1,4 +1,9 @@
 const axios = require("axios")
+require("dotenv").config()
+
+console.log(
+  `[GNEWS SERVICE] Loaded GNEWS_API_KEY: ${process.env.GNEWS_API_KEY ? process.env.GNEWS_API_KEY.slice(0, 4) + "****" : "NOT FOUND"}`,
+)
 
 class GNewsService {
   constructor() {
@@ -34,10 +39,11 @@ class GNewsService {
         const articles = response.data.articles.map((article) => ({
           title: article.title,
           description: article.description,
+          content: article.content || article.description,
           url: article.url,
           publishedAt: article.publishedAt,
           image: article.image,
-          source: "gnews",
+          source: article.source?.name || "GNews",
           category: "General",
           tags: [],
           score: 50,
@@ -86,10 +92,11 @@ class GNewsService {
         const articles = response.data.articles.map((article) => ({
           title: article.title,
           description: article.description,
+          content: article.content || article.description,
           url: article.url,
           publishedAt: article.publishedAt,
           image: article.image,
-          source: "gnews",
+          source: article.source?.name || "GNews",
           category: "General",
           tags: [],
           score: 50,
@@ -111,6 +118,62 @@ class GNewsService {
 
       return []
     }
+  }
+
+  async getTrendingTopics(limit = 10) {
+    console.log(`[GNEWS SERVICE] Getting trending topics with limit: ${limit}`)
+
+    // Try multiple queries to get diverse content
+    const queries = ["trending news", "breaking news", "technology", "business", "health"]
+    const allArticles = []
+
+    for (const query of queries) {
+      try {
+        const articles = await this.searchNews(query, Math.ceil(limit / queries.length))
+        allArticles.push(...articles)
+
+        if (allArticles.length >= limit) break
+      } catch (error) {
+        console.error(`[GNEWS SERVICE] Error fetching for query "${query}":`, error.message)
+      }
+    }
+
+    // Remove duplicates and limit results
+    const uniqueArticles = this.removeDuplicates(allArticles).slice(0, limit)
+
+    if (uniqueArticles.length > 0) {
+      console.log(`[GNEWS SERVICE] Successfully retrieved ${uniqueArticles.length} trending topics`)
+      return {
+        success: true,
+        trends: uniqueArticles.map((article) => ({
+          title: article.title,
+          description: article.description,
+          content: article.content,
+          url: article.url,
+          publishedAt: article.publishedAt,
+          image: article.image,
+          source: "gnews",
+          category: article.category || "General",
+          tags: article.tags || [],
+          score: article.score || 50,
+        })),
+      }
+    }
+
+    console.log("[GNEWS SERVICE] No trending topics found")
+    return { success: false, trends: [], error: "No articles from GNews" }
+  }
+
+  removeDuplicates(articles) {
+    const seen = new Set()
+    return articles.filter((article) => {
+      const key = article.url || article.title.toLowerCase()
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
   }
 
   async testConnection() {
@@ -187,4 +250,19 @@ class GNewsService {
   }
 }
 
-module.exports = new GNewsService()
+// Create and export singleton instance
+const gnewsService = new GNewsService()
+module.exports = gnewsService
+
+// Also export the functions for backward compatibility
+module.exports.fetchGNewsArticles = async (query, max = 10) => {
+  return await gnewsService.searchNews(query, max)
+}
+
+module.exports.getTrendingTopics = async (limit = 10) => {
+  return await gnewsService.getTrendingTopics(limit)
+}
+
+module.exports.testConnection = async () => {
+  return await gnewsService.testConnection()
+}
