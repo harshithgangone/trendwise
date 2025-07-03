@@ -19,11 +19,8 @@ async function articleRoutes(fastify, options) {
       const limitNum = Math.min(50, Math.max(1, Number.parseInt(limit)))
       const skip = (pageNum - 1) * limitNum
 
-      console.log(`📊 [API] Fetching articles - Page: ${pageNum}, Limit: ${limitNum}`)
-
       // Build query
       const query = { status: "published" }
-
       if (search) {
         query.$or = [
           { title: { $regex: search, $options: "i" } },
@@ -31,20 +28,16 @@ async function articleRoutes(fastify, options) {
           { content: { $regex: search, $options: "i" } },
         ]
       }
-
       if (tag) {
         query.tags = { $in: [new RegExp(tag, "i")] }
       }
-
       if (category) {
         query.category = { $regex: category, $options: "i" }
       }
-
       if (featured === "true") {
         query.featured = true
       }
 
-      // Build sort object
       let sortObj = {}
       switch (sort) {
         case "views":
@@ -60,20 +53,23 @@ async function articleRoutes(fastify, options) {
           sortObj = { createdAt: -1 }
       }
 
-      // Execute query
+      console.log("[ARTICLES API] Query:", JSON.stringify(query));
+      console.log("[ARTICLES API] Sort:", JSON.stringify(sortObj));
+      console.log(`[ARTICLES API] Pagination: page=${pageNum}, limit=${limitNum}, skip=${skip}`);
+
       const [articles, total] = await Promise.all([
         Article.find(query)
           .sort(sortObj)
           .skip(skip)
           .limit(limitNum)
-          .select("-content") // Exclude full content for list view
+          .select("-content")
           .lean(),
         Article.countDocuments(query),
       ])
 
-      const totalPages = Math.ceil(total / limitNum)
+      console.log(`[ARTICLES API] Found ${articles.length} articles, total in DB: ${total}`);
 
-      console.log(`📊 [API] Fetched ${articles.length} articles (page ${pageNum}/${totalPages})`)
+      const totalPages = Math.ceil(total / limitNum)
 
       // Transform articles for frontend compatibility
       const transformedArticles = articles.map((article) => ({
@@ -97,6 +93,8 @@ async function articleRoutes(fastify, options) {
           searchVolume: "1K-10K",
         },
       }))
+
+      console.log(`[ARTICLES API] Sending ${transformedArticles.length} articles to frontend.`);
 
       return reply.send({
         success: true,
