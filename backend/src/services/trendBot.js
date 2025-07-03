@@ -131,9 +131,9 @@ class TrendBot {
 
       for (const newsItem of newsArticles) {
         try {
-          // Check if article already exists
+          // Check if article already exists - use exact URL match only
           const existingArticle = await Article.findOne({
-            $or: [{ title: newsItem.title }, { url: newsItem.url }],
+            "source.url": newsItem.url,
           })
 
           if (existingArticle) {
@@ -147,12 +147,12 @@ class TrendBot {
           let featuredImage = null
 
           // First try to use the image from GNews API
-          if (newsItem.urlToImage && this.isValidImageUrl(newsItem.urlToImage)) {
-            featuredImage = newsItem.urlToImage
-            console.log(`🖼️ Using GNews image: ${newsItem.urlToImage.substring(0, 50)}...`)
-          } else if (newsItem.image && this.isValidImageUrl(newsItem.image)) {
+          if (newsItem.image && this.isValidImageUrl(newsItem.image)) {
             featuredImage = newsItem.image
             console.log(`🖼️ Using GNews image: ${newsItem.image.substring(0, 50)}...`)
+          } else if (newsItem.urlToImage && this.isValidImageUrl(newsItem.urlToImage)) {
+            featuredImage = newsItem.urlToImage
+            console.log(`🖼️ Using GNews image: ${newsItem.urlToImage.substring(0, 50)}...`)
           } else {
             // Fallback to Unsplash
             const imageQuery = "technology" // Default value before enhancedContent is defined
