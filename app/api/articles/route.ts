@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { AbortSignal } from "abort-controller"
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:10000"
 
@@ -31,6 +30,7 @@ export async function GET(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "TrendWise-Frontend/1.0",
+        Accept: "application/json",
       },
       signal: controller.signal,
     })
@@ -40,13 +40,16 @@ export async function GET(request: NextRequest) {
     console.log(`📊 [FRONTEND API] Backend response status: ${response.status}`)
 
     if (!response.ok) {
+      const errorText = await response.text()
       console.error(`❌ [FRONTEND API] Backend error: ${response.status} ${response.statusText}`)
+      console.error(`❌ [FRONTEND API] Error details: ${errorText}`)
 
       // Return fallback response
       return NextResponse.json(
         {
           success: false,
           error: "Backend temporarily unavailable",
+          details: errorText,
           articles: [],
           pagination: {
             page: Number.parseInt(page),
@@ -78,6 +81,7 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: "Failed to fetch articles",
+        message: error.message,
         articles: [],
         pagination: {
           page: 1,
@@ -109,7 +113,6 @@ export async function POST(request: NextRequest) {
         "User-Agent": "TrendWise-Frontend/1.0",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15000),
     })
 
     console.log(`📊 [FRONTEND API] Backend response status: ${response.status}`)
