@@ -1,50 +1,67 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = process.env.BACKEND_URL || "https://your-backend-url.onrender.com"
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+
+// Fallback bot status
+const FALLBACK_BOT_STATUS = {
+  isRunning: false,
+  lastRun: new Date(Date.now() - 300000).toISOString(),
+  nextRun: new Date(Date.now() + 300000).toISOString(),
+  articlesGenerated: 0,
+  status: "Offline - Backend Connection Error",
+  stats: {
+    totalRuns: 0,
+    successfulRuns: 0,
+    failedRuns: 0,
+    articlesGenerated: 0,
+  },
+}
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("📡 [FRONTEND] Fetching data source status...")
+    console.log("🤖 [FRONTEND API] Fetching bot status")
 
-    const response = await fetch(`${BACKEND_URL}/api/admin/data-source-status`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "TrendWise-Frontend/1.0",
-        Accept: "application/json",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(30000),
-    })
+    // Try to fetch from backend
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-    if (!response.ok) {
-      console.error(`❌ [FRONTEND] Backend error: ${response.status}`)
+      const response = await fetch(`${BACKEND_URL}/api/admin/bot-status`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "TrendWise-Frontend/1.0",
+        },
+        signal: controller.signal,
+      })
 
-      // Return fallback data source status
+      clearTimeout(timeoutId)
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log("✅ [FRONTEND API] Successfully fetched bot status from backend")
+        return NextResponse.json(data)
+      } else {
+        console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status}`)
+        throw new Error(`Backend error: ${response.status}`)
+      }
+    } catch (backendError) {
+      console.log("⚠️ [FRONTEND API] Backend unavailable, using fallback bot status")
+
       return NextResponse.json({
         success: true,
-        isUsingRealData: false,
-        source: "Fallback Content",
-        gnewsStatus: "Offline",
-        groqStatus: "Offline",
-        unsplashStatus: "Offline",
+        botStatus: FALLBACK_BOT_STATUS,
       })
     }
-
-    const data = await response.json()
-    console.log("✅ [FRONTEND] Got data source status")
-
-    return NextResponse.json(data)
   } catch (error) {
-    console.error("❌ [FRONTEND] Error fetching data source status:", error)
+    console.error("❌ [FRONTEND API] Error fetching bot status:", error)
 
     return NextResponse.json({
       success: true,
-      isUsingRealData: false,
-      source: "Error - Using Fallback",
-      gnewsStatus: "Connection Error",
-      groqStatus: "Connection Error",
-      unsplashStatus: "Connection Error",
+      botStatus: FALLBACK_BOT_STATUS,
     })
   }
 }

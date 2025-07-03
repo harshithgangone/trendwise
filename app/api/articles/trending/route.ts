@@ -1,125 +1,109 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
-// Mock trending articles
-const mockTrendingArticles = [
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+
+// Fallback trending articles
+const FALLBACK_TRENDING = [
   {
     _id: "trending-1",
-    title: "Breaking: Revolutionary AI Breakthrough Changes Everything",
-    slug: "revolutionary-ai-breakthrough-changes-everything",
-    excerpt:
-      "Scientists announce a major breakthrough in artificial intelligence that could reshape technology as we know it.",
-    content: "In a groundbreaking development that has sent shockwaves through the tech industry...",
-    thumbnail: "/placeholder.svg?height=400&width=600",
-    createdAt: new Date().toISOString(),
-    tags: ["AI", "Technology", "Breaking News", "Innovation"],
-    readTime: 6,
-    views: 15420,
-    likes: 892,
-    saves: 234,
-    featured: true,
+    title: "AI Breakthrough: New Language Model Surpasses GPT-4",
+    slug: "ai-breakthrough-new-language-model",
+    excerpt: "Revolutionary AI model demonstrates unprecedented capabilities in reasoning and creativity.",
+    category: "Technology",
+    tags: ["AI", "Machine Learning", "Innovation"],
+    imageUrl: "/placeholder.svg?height=300&width=500",
+    author: "Tech Reporter",
+    publishedAt: new Date(Date.now() - 3600000).toISOString(),
+    readTime: 4,
+    likes: 156,
+    views: 3420,
+    comments: 23,
     trending: true,
-    trendScore: 95,
   },
   {
     _id: "trending-2",
-    title: "Global Climate Summit Reaches Historic Agreement",
-    slug: "global-climate-summit-historic-agreement",
-    excerpt: "World leaders unite on unprecedented climate action plan with binding commitments.",
-    content: "After days of intense negotiations, world leaders have reached a historic agreement...",
-    thumbnail: "/placeholder.svg?height=400&width=600",
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    tags: ["Climate", "Politics", "Environment", "Global"],
-    readTime: 8,
-    views: 12350,
-    likes: 567,
-    saves: 189,
-    featured: true,
+    title: "Quantum Computing Milestone: 1000-Qubit Processor Achieved",
+    slug: "quantum-computing-1000-qubit-milestone",
+    excerpt: "Scientists achieve new quantum computing record, bringing us closer to practical applications.",
+    category: "Science",
+    tags: ["Quantum", "Computing", "Science"],
+    imageUrl: "/placeholder.svg?height=300&width=500",
+    author: "Science Team",
+    publishedAt: new Date(Date.now() - 7200000).toISOString(),
+    readTime: 6,
+    likes: 89,
+    views: 2100,
+    comments: 15,
     trending: true,
-    trendScore: 88,
   },
   {
     _id: "trending-3",
-    title: "Space Mission Discovers Potential Signs of Life",
-    slug: "space-mission-discovers-potential-signs-life",
-    excerpt:
-      "NASA's latest mission to Mars uncovers compelling evidence that could change our understanding of life in the universe.",
-    content: "In what could be the most significant discovery in space exploration history...",
-    thumbnail: "/placeholder.svg?height=400&width=600",
-    createdAt: new Date(Date.now() - 7200000).toISOString(),
-    tags: ["Space", "Science", "NASA", "Discovery"],
-    readTime: 7,
-    views: 9876,
-    likes: 445,
-    saves: 156,
-    featured: true,
+    title: "Sustainable Energy: Solar Efficiency Reaches 50%",
+    slug: "solar-efficiency-reaches-50-percent",
+    excerpt: "New solar panel technology achieves record-breaking efficiency rates.",
+    category: "Environment",
+    tags: ["Solar", "Energy", "Sustainability"],
+    imageUrl: "/placeholder.svg?height=300&width=500",
+    author: "Green Tech",
+    publishedAt: new Date(Date.now() - 10800000).toISOString(),
+    readTime: 5,
+    likes: 67,
+    views: 1800,
+    comments: 12,
     trending: true,
-    trendScore: 82,
   },
 ]
 
-export const dynamic = "force-dynamic"
-
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    // Try to fetch from backend first
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
+    const { searchParams } = new URL(request.url)
+    const limit = Number.parseInt(searchParams.get("limit") || "6")
 
+    console.log("🔥 [FRONTEND API] Fetching trending articles")
+
+    // Try to fetch from backend
     try {
-      console.log("🔥 [FRONTEND API] Fetching trending articles...")
-      const apiUrl = `${backendUrl}/api/articles/trending`
-      console.log("🔗 [FRONTEND API] Trending API URL:", apiUrl)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-      const response = await fetch(apiUrl, {
+      const response = await fetch(`${BACKEND_URL}/api/articles/trending?limit=${limit}`, {
         method: "GET",
         headers: {
-          Accept: "application/json",
           "Content-Type": "application/json",
+          "User-Agent": "TrendWise-Frontend/1.0",
         },
-        cache: "no-store",
-        signal: AbortSignal.timeout(10000),
+        signal: controller.signal,
       })
+
+      clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
-        console.log(
-          `✅ [FRONTEND API] Successfully fetched ${data.articles?.length || data.length || 0} trending articles`,
-        )
-
-        if (Array.isArray(data)) {
-          return NextResponse.json({
-            success: true,
-            articles: data,
-          })
-        } else if (data.articles) {
-          return NextResponse.json(data)
-        } else {
-          throw new Error("Invalid response format from backend")
-        }
+        console.log("✅ [FRONTEND API] Successfully fetched trending from backend")
+        return NextResponse.json(data)
       } else {
-        console.log(`⚠️ [FRONTEND API] Backend responded with status ${response.status}, using mock trending articles`)
-        throw new Error(`Backend responded with status: ${response.status}`)
+        console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status}`)
+        throw new Error(`Backend error: ${response.status}`)
       }
     } catch (backendError) {
-      console.log(
-        "⚠️ [FRONTEND API] Backend not available for trending articles, using mock data:",
-        backendError instanceof Error ? backendError.message : "Unknown error",
-      )
+      console.log("⚠️ [FRONTEND API] Backend unavailable, using fallback trending")
 
       return NextResponse.json({
         success: true,
-        articles: mockTrendingArticles,
+        articles: FALLBACK_TRENDING.slice(0, limit),
+        total: FALLBACK_TRENDING.length,
       })
     }
   } catch (error) {
     console.error("❌ [FRONTEND API] Error fetching trending articles:", error)
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to fetch trending articles",
-        articles: mockTrendingArticles,
-      },
-      { status: 500 },
-    )
+    return NextResponse.json({
+      success: true,
+      articles: FALLBACK_TRENDING.slice(0, 3),
+      total: 3,
+    })
   }
 }

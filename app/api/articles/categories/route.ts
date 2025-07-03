@@ -1,56 +1,66 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const BACKEND_URL = process.env.BACKEND_URL || "https://your-backend-url.onrender.com"
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+
+// Fallback categories
+const FALLBACK_CATEGORIES = [
+  { name: "Technology", count: 45, slug: "technology" },
+  { name: "Science", count: 32, slug: "science" },
+  { name: "Business", count: 28, slug: "business" },
+  { name: "Environment", count: 23, slug: "environment" },
+  { name: "Health", count: 19, slug: "health" },
+  { name: "Politics", count: 15, slug: "politics" },
+  { name: "Sports", count: 12, slug: "sports" },
+  { name: "Entertainment", count: 8, slug: "entertainment" },
+]
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("📂 [FRONTEND] Fetching article categories...")
+    console.log("📂 [FRONTEND API] Fetching categories")
 
-    const response = await fetch(`${BACKEND_URL}/api/articles/categories`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "TrendWise-Frontend/1.0",
-        Accept: "application/json",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(30000),
-    })
+    // Try to fetch from backend
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-    if (!response.ok) {
-      console.error(`❌ [FRONTEND] Backend error: ${response.status}`)
+      const response = await fetch(`${BACKEND_URL}/api/articles/categories`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "TrendWise-Frontend/1.0",
+        },
+        signal: controller.signal,
+      })
 
-      // Return fallback categories
+      clearTimeout(timeoutId)
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log("✅ [FRONTEND API] Successfully fetched categories from backend")
+        return NextResponse.json(data)
+      } else {
+        console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status}`)
+        throw new Error(`Backend error: ${response.status}`)
+      }
+    } catch (backendError) {
+      console.log("⚠️ [FRONTEND API] Backend unavailable, using fallback categories")
+
       return NextResponse.json({
         success: true,
-        categories: [
-          { name: "Technology", count: 45, slug: "technology" },
-          { name: "Business", count: 32, slug: "business" },
-          { name: "Science", count: 28, slug: "science" },
-          { name: "Health", count: 24, slug: "health" },
-          { name: "Environment", count: 19, slug: "environment" },
-          { name: "Politics", count: 16, slug: "politics" },
-          { name: "Sports", count: 12, slug: "sports" },
-          { name: "Entertainment", count: 8, slug: "entertainment" },
-        ],
+        categories: FALLBACK_CATEGORIES,
+        total: FALLBACK_CATEGORIES.length,
       })
     }
-
-    const data = await response.json()
-    console.log(`✅ [FRONTEND] Got ${data.categories?.length || 0} categories`)
-
-    return NextResponse.json(data)
   } catch (error) {
-    console.error("❌ [FRONTEND] Error fetching categories:", error)
+    console.error("❌ [FRONTEND API] Error fetching categories:", error)
 
     return NextResponse.json({
       success: true,
-      categories: [
-        { name: "Technology", count: 25, slug: "technology" },
-        { name: "AI & Innovation", count: 18, slug: "ai-innovation" },
-        { name: "Business", count: 15, slug: "business" },
-        { name: "Science", count: 12, slug: "science" },
-      ],
+      categories: FALLBACK_CATEGORIES,
+      total: FALLBACK_CATEGORIES.length,
     })
   }
 }
