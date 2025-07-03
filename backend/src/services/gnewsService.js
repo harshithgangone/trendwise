@@ -1,8 +1,10 @@
 const axios = require("axios")
 const cheerio = require("cheerio")
-require('dotenv').config(); // Ensure .env is loaded
+require("dotenv").config() // Ensure .env is loaded
 
-console.log(`[GNEWS SERVICE] Loaded GNEWS_API_KEY: ${process.env.GNEWS_API_KEY ? process.env.GNEWS_API_KEY.slice(0,4) + '****' : 'NOT FOUND'}`);
+console.log(
+  `[GNEWS SERVICE] Loaded GNEWS_API_KEY: ${process.env.GNEWS_API_KEY ? process.env.GNEWS_API_KEY.slice(0, 4) + "****" : "NOT FOUND"}`,
+)
 
 class TrendCrawler {
   constructor() {
@@ -393,51 +395,110 @@ module.exports = new TrendCrawler()
 
 // Example function to fetch GNews articles (add debug logs)
 async function fetchGNewsArticles(query, max = 10) {
-  const apiKey = process.env.GNEWS_API_KEY;
+  const apiKey = process.env.GNEWS_API_KEY
   if (!apiKey) {
-    console.error('[GNEWS SERVICE] GNEWS_API_KEY is missing!');
-    return [];
+    console.error("[GNEWS SERVICE] GNEWS_API_KEY is missing!")
+    return []
   }
-  const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&max=${max}&lang=en&token=${apiKey}`;
-  console.log(`[GNEWS SERVICE] Fetching GNews articles from: ${url}`);
+  const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(query)}&max=${max}&lang=en&token=${apiKey}`
+  console.log(`[GNEWS SERVICE] Fetching GNews articles from: ${url}`)
   try {
-    const response = await axios.get(url);
-    console.log(`[GNEWS SERVICE] GNews API response status: ${response.status}`);
+    const response = await axios.get(url)
+    console.log(`[GNEWS SERVICE] GNews API response status: ${response.status}`)
     if (response.data && response.data.articles) {
-      console.log(`[GNEWS SERVICE] Retrieved ${response.data.articles.length} articles from GNews.`);
-      return response.data.articles;
+      console.log(`[GNEWS SERVICE] Retrieved ${response.data.articles.length} articles from GNews.`)
+      return response.data.articles
     } else {
-      console.warn('[GNEWS SERVICE] No articles found in GNews response.');
-      return [];
+      console.warn("[GNEWS SERVICE] No articles found in GNews response.")
+      return []
     }
   } catch (error) {
-    console.error('[GNEWS SERVICE] Error fetching GNews articles:', error.message);
-    return [];
+    console.error("[GNEWS SERVICE] Error fetching GNews articles:", error.message)
+    return []
   }
 }
 
-module.exports.fetchGNewsArticles = fetchGNewsArticles;
+module.exports.fetchGNewsArticles = fetchGNewsArticles
 
 // Add this function to provide trending topics in the expected format
 async function getTrendingTopics(limit = 10) {
   // For trending, use a generic query like 'top news' or 'trending'
-  const articles = await fetchGNewsArticles('top news', limit);
+  const articles = await fetchGNewsArticles("top news", limit)
   if (!articles || articles.length === 0) {
-    return { success: false, trends: [], error: 'No articles from GNews' };
+    return { success: false, trends: [], error: "No articles from GNews" }
   }
   // Map to expected format
-  const trends = articles.map(article => ({
+  const trends = articles.map((article) => ({
     title: article.title,
     description: article.description,
     url: article.url,
     publishedAt: article.publishedAt,
     image: article.image,
-    source: article.source?.name || 'GNews',
-    category: article.category || 'General',
+    source: article.source?.name || "GNews",
+    category: article.category || "General",
     tags: article.keywords || [],
-    score: 50 // Placeholder, can be improved
-  }));
-  return { success: true, trends };
+    score: 50, // Placeholder, can be improved
+  }))
+  return { success: true, trends }
 }
 
-module.exports.getTrendingTopics = getTrendingTopics;
+module.exports.getTrendingTopics = getTrendingTopics
+
+// Add the missing testConnection method
+async function testConnection() {
+  console.log("🔧 [GNEWS SERVICE] Testing connection...")
+
+  const apiKey = process.env.GNEWS_API_KEY
+  if (!apiKey) {
+    console.log("⚠️ [GNEWS SERVICE] No API key configured")
+    return {
+      success: false,
+      error: "No API key configured",
+      fallbackAvailable: true,
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  try {
+    console.log("📡 [GNEWS SERVICE] Testing API connection...")
+
+    const startTime = Date.now()
+    const response = await axios.get(`https://gnews.io/api/v4/search?q=test&max=1&lang=en&token=${apiKey}`, {
+      timeout: 10000,
+    })
+    const endTime = Date.now()
+
+    console.log("✅ [GNEWS SERVICE] Connection test successful")
+    console.log(`⏱️ [GNEWS SERVICE] Response time: ${endTime - startTime}ms`)
+
+    return {
+      success: true,
+      status: response.status,
+      responseTime: `${endTime - startTime}ms`,
+      timestamp: new Date().toISOString(),
+    }
+  } catch (error) {
+    console.error("❌ [GNEWS SERVICE] Connection test failed:", error.message)
+
+    const errorDetails = {
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    }
+
+    if (error.response) {
+      errorDetails.status = error.response.status
+      errorDetails.statusText = error.response.statusText
+      console.error(`📊 [GNEWS SERVICE] API Error Status: ${error.response.status} - ${error.response.statusText}`)
+
+      if (error.response.status === 401) {
+        console.error("🔑 [GNEWS SERVICE] Authentication failed - check API key")
+        errorDetails.authError = true
+      }
+    }
+
+    return errorDetails
+  }
+}
+
+module.exports.testConnection = testConnection

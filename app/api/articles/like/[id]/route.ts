@@ -13,26 +13,32 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const articleId = params.id
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "https://trendwise-backend-frpp.onrender.com"
 
-    // Call backend API to increment like count
+    console.log(`🔗 [LIKE API] Attempting to like article ${articleId} for user ${session.user?.email}`)
+
+    // Call backend API to handle like
     const response = await fetch(`${backendUrl}/api/articles/${articleId}/like`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        userId: session.user?.email,
+        userId: session.user?.id || session.user?.email,
+        userEmail: session.user?.email,
         action: "like",
       }),
     })
 
     if (response.ok) {
       const data = await response.json()
+      console.log(`✅ [LIKE API] Successfully liked article ${articleId}`)
       return NextResponse.json(data)
     } else {
-      throw new Error("Failed to update like count")
+      const errorText = await response.text()
+      console.error(`❌ [LIKE API] Backend error: ${response.status} - ${errorText}`)
+      throw new Error(`Backend error: ${response.status}`)
     }
   } catch (error) {
-    console.error("Error updating like:", error)
+    console.error("❌ [LIKE API] Error updating like:", error)
     return NextResponse.json({ error: "Failed to update like" }, { status: 500 })
   }
 }

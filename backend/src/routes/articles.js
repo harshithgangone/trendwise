@@ -1,10 +1,14 @@
 const Article = require("../models/Article")
+const UserPreference = require("../models/UserPreference")
 const TrendBot = require("../services/trendBot")
 
 async function articleRoutes(fastify, options) {
   // Get all articles with pagination and filtering
   fastify.get("/articles", async (request, reply) => {
     try {
+      console.log("📡 [ARTICLES API] Received request for articles")
+      console.log("🔍 [ARTICLES API] Query params:", request.query)
+
       const {
         page = 1,
         limit = 10,
@@ -31,7 +35,7 @@ async function articleRoutes(fastify, options) {
       if (tag) {
         query.tags = { $in: [new RegExp(tag, "i")] }
       }
-      if (category) {
+      if (category && category !== "all") {
         query.category = { $regex: category, $options: "i" }
       }
       if (featured === "true") {
@@ -53,21 +57,16 @@ async function articleRoutes(fastify, options) {
           sortObj = { createdAt: -1 }
       }
 
-      console.log("[ARTICLES API] Query:", JSON.stringify(query));
-      console.log("[ARTICLES API] Sort:", JSON.stringify(sortObj));
-      console.log(`[ARTICLES API] Pagination: page=${pageNum}, limit=${limitNum}, skip=${skip}`);
+      console.log("[ARTICLES API] Query:", JSON.stringify(query))
+      console.log("[ARTICLES API] Sort:", JSON.stringify(sortObj))
+      console.log(`[ARTICLES API] Pagination: page=${pageNum}, limit=${limitNum}, skip=${skip}`)
 
       const [articles, total] = await Promise.all([
-        Article.find(query)
-          .sort(sortObj)
-          .skip(skip)
-          .limit(limitNum)
-          .select("-content")
-          .lean(),
+        Article.find(query).sort(sortObj).skip(skip).limit(limitNum).select("-content").lean(),
         Article.countDocuments(query),
       ])
 
-      console.log(`[ARTICLES API] Found ${articles.length} articles, total in DB: ${total}`);
+      console.log(`[ARTICLES API] Found ${articles.length} articles, total in DB: ${total}`)
 
       const totalPages = Math.ceil(total / limitNum)
 
@@ -94,7 +93,7 @@ async function articleRoutes(fastify, options) {
         },
       }))
 
-      console.log(`[ARTICLES API] Sending ${transformedArticles.length} articles to frontend.`);
+      console.log(`[ARTICLES API] Sending ${transformedArticles.length} articles to frontend.`)
 
       return reply.send({
         success: true,
@@ -242,14 +241,56 @@ async function articleRoutes(fastify, options) {
   })
 
   // Like/Unlike article
-  fastify.post("/articles/like/:id", async (request, reply) => {
+  fastify.post("/articles/:id/like", async (request, reply) => {
     try {
       const { id } = request.params
-      const { increment } = request.body
+      const { userId, userEmail } = request.body
 
-      const updateOperation = increment ? { $inc: { likes: 1 } } : { $inc: { likes: -1 } }
+      console.log(`👍 [ARTICLES API] Processing like for article ${id} by user ${userEmail || userId}`)
 
-      const article = await Article.findByIdAndUpdate(id, updateOperation, { new: true, runValidators: true })
+      if (!userId && !userEmail) {
+        return reply.status(400).send({
+          success: false,
+          error: "User ID or email required",
+        })
+      }
+
+      // Find or create user preferences
+      let userPrefs = await UserPreference.findOne({
+        $or: [{ userId: userId }, { email: userEmail }],
+      })
+
+      if (!userPrefs) {
+        console.log(`📝 [ARTICLES API] Creating new user preferences for ${userEmail || userId}`)
+        userPrefs = new UserPreference({
+          userId: userId || userEmail,
+          email: userEmail,
+          likedArticles: [],
+          savedArticles: [],
+          recentlyViewed: [],
+        })
+      }
+
+      // Check if already liked
+      const alreadyLiked = userPrefs.likedArticles.some((like) => like.articleId.toString() === id)
+
+      let article
+      if (alreadyLiked) {
+        // Unlike
+        console.log(`👎 [ARTICLES API] Unliking article ${id}`)
+        userPrefs.likedArticles = userPrefs.likedArticles.filter((like) => like.articleId.toString() !== id)
+        article = await Article.findByIdAndUpdate(id, { $inc: { likes: -1 } }, { new: true })
+      } else {
+        // Like
+        console.log(`👍 [ARTICLES API] Liking article ${id}`)
+        userPrefs.likedArticles.push({
+          articleId: id,
+          likedAt: new Date(),
+        })
+        article = await Article.findByIdAndUpdate(id, { $inc: { likes: 1 } }, { new: true })
+      }
+
+      await userPrefs.save()
 
       if (!article) {
         return reply.status(404).send({
@@ -258,38 +299,74 @@ async function articleRoutes(fastify, options) {
         })
       }
 
-      // Ensure likes don't go below 0
-      if (article.likes < 0) {
-        article.likes = 0
-        await article.save()
-      }
-
-      console.log(`❤️ [API] Article ${increment ? "liked" : "unliked"}: ${article.title}`)
-
+      console.log(`✅ [ARTICLES API] Like operation completed. Article likes: ${article.likes}`)
       return reply.send({
         success: true,
+        liked: !alreadyLiked,
         likes: article.likes,
-        message: increment ? "Article liked" : "Article unliked",
+        message: alreadyLiked ? "Article unliked" : "Article liked",
       })
     } catch (error) {
-      console.error("❌ [API] Error updating article likes:", error)
+      console.error("❌ [ARTICLES API] Error processing like:", error)
       return reply.status(500).send({
         success: false,
-        error: "Failed to update likes",
+        error: "Failed to process like",
         message: error.message,
       })
     }
   })
 
   // Save/Unsave article
-  fastify.post("/articles/save/:id", async (request, reply) => {
+  fastify.post("/articles/:id/save", async (request, reply) => {
     try {
       const { id } = request.params
-      const { increment } = request.body
+      const { userId, userEmail } = request.body
 
-      const updateOperation = increment ? { $inc: { saves: 1 } } : { $inc: { saves: -1 } }
+      console.log(`💾 [ARTICLES API] Processing save for article ${id} by user ${userEmail || userId}`)
 
-      const article = await Article.findByIdAndUpdate(id, updateOperation, { new: true, runValidators: true })
+      if (!userId && !userEmail) {
+        return reply.status(400).send({
+          success: false,
+          error: "User ID or email required",
+        })
+      }
+
+      // Find or create user preferences
+      let userPrefs = await UserPreference.findOne({
+        $or: [{ userId: userId }, { email: userEmail }],
+      })
+
+      if (!userPrefs) {
+        console.log(`📝 [ARTICLES API] Creating new user preferences for ${userEmail || userId}`)
+        userPrefs = new UserPreference({
+          userId: userId || userEmail,
+          email: userEmail,
+          likedArticles: [],
+          savedArticles: [],
+          recentlyViewed: [],
+        })
+      }
+
+      // Check if already saved
+      const alreadySaved = userPrefs.savedArticles.some((save) => save.articleId.toString() === id)
+
+      let article
+      if (alreadySaved) {
+        // Unsave
+        console.log(`🗑️ [ARTICLES API] Unsaving article ${id}`)
+        userPrefs.savedArticles = userPrefs.savedArticles.filter((save) => save.articleId.toString() !== id)
+        article = await Article.findByIdAndUpdate(id, { $inc: { saves: -1 } }, { new: true })
+      } else {
+        // Save
+        console.log(`💾 [ARTICLES API] Saving article ${id}`)
+        userPrefs.savedArticles.push({
+          articleId: id,
+          savedAt: new Date(),
+        })
+        article = await Article.findByIdAndUpdate(id, { $inc: { saves: 1 } }, { new: true })
+      }
+
+      await userPrefs.save()
 
       if (!article) {
         return reply.status(404).send({
@@ -298,24 +375,18 @@ async function articleRoutes(fastify, options) {
         })
       }
 
-      // Ensure saves don't go below 0
-      if (article.saves < 0) {
-        article.saves = 0
-        await article.save()
-      }
-
-      console.log(`💾 [API] Article ${increment ? "saved" : "unsaved"}: ${article.title}`)
-
+      console.log(`✅ [ARTICLES API] Save operation completed. Article saves: ${article.saves}`)
       return reply.send({
         success: true,
+        saved: !alreadySaved,
         saves: article.saves,
-        message: increment ? "Article saved" : "Article unsaved",
+        message: alreadySaved ? "Article unsaved" : "Article saved",
       })
     } catch (error) {
-      console.error("❌ [API] Error updating article saves:", error)
+      console.error("❌ [ARTICLES API] Error processing save:", error)
       return reply.status(500).send({
         success: false,
-        error: "Failed to update saves",
+        error: "Failed to process save",
         message: error.message,
       })
     }
@@ -469,13 +540,13 @@ async function articleRoutes(fastify, options) {
   // Manual refresh endpoint to trigger GNews/AI fetch
   fastify.post("/articles/refresh", async (request, reply) => {
     try {
-      console.log("🔄 [API] Manual refresh endpoint called. Triggering TrendBot manualTrigger...");
-      const result = await TrendBot.manualTrigger();
-      console.log("✅ [API] Manual refresh completed.", result);
-      return reply.send({ success: true, result });
+      console.log("🔄 [API] Manual refresh endpoint called. Triggering TrendBot manualTrigger...")
+      const result = await TrendBot.manualTrigger()
+      console.log("✅ [API] Manual refresh completed.", result)
+      return reply.send({ success: true, result })
     } catch (error) {
-      console.error("❌ [API] Error in manual refresh endpoint:", error);
-      return reply.status(500).send({ success: false, error: error.message });
+      console.error("❌ [API] Error in manual refresh endpoint:", error)
+      return reply.status(500).send({ success: false, error: error.message })
     }
   })
 }

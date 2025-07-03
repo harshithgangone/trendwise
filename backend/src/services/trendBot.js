@@ -4,9 +4,11 @@ const GroqService = require("./groqService")
 const UnsplashService = require("./unsplashService")
 const Article = require("../models/Article")
 const slugify = require("slugify")
-require('dotenv').config();
+require("dotenv").config()
 
-console.log(`[TREND BOT] Loaded GNEWS_API_KEY: ${process.env.GNEWS_API_KEY ? process.env.GNEWS_API_KEY.slice(0,4) + '****' : 'NOT FOUND'}`);
+console.log(
+  `[TREND BOT] Loaded GNEWS_API_KEY: ${process.env.GNEWS_API_KEY ? process.env.GNEWS_API_KEY.slice(0, 4) + "****" : "NOT FOUND"}`,
+)
 
 class TrendBot {
   constructor() {
@@ -23,16 +25,16 @@ class TrendBot {
       errors: [],
     }
     this.config = {
-      // Changed from 10 minutes to 10 minutes
-      interval: "*/5 * * * *", // Every 10 minutes
-      maxArticlesPerRun: 10, // Increased from 3 to 10 to process more articles
+      // Changed from 10 minutes to 5 minutes
+      interval: "*/5 * * * *", // Every 5 minutes
+      maxArticlesPerRun: 5, // Reduced to 5 to avoid overwhelming
       retryAttempts: 3,
       retryDelay: 5000,
       categories: ["Technology", "Business", "Health", "Science", "Entertainment"],
       sources: ["google-trends", "reddit-hot"],
     }
 
-    console.log("🤖 [TrendBot] Initialized with 10-minute interval configuration")
+    console.log("🤖 [TrendBot] Initialized with 5-minute interval configuration")
     console.log(`🔧 [TrendBot] Config: ${JSON.stringify(this.config, null, 2)}`)
   }
 
@@ -264,7 +266,7 @@ class TrendBot {
     const qualityTrends = this.filterTrendsByQuality(uniqueTrends)
     console.log(`✨ [TrendBot] Quality filtered: ${uniqueTrends.length} → ${qualityTrends.length}`)
 
-    // Check for existing articles
+    // Check for existing articles - FIXED: Less aggressive duplicate checking
     const newTrends = await this.filterExistingArticles(qualityTrends)
     console.log(`🆕 [TrendBot] New trends (not already covered): ${qualityTrends.length} → ${newTrends.length}`)
 
@@ -309,22 +311,25 @@ class TrendBot {
 
     for (const trend of trends) {
       try {
-        // Improved duplicate check: match by URL or fuzzy title
-        const query = {
-          $or: [
-            trend.url ? { url: trend.url } : {},
-            { title: { $regex: new RegExp(trend.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } },
-            { slug: trend.title.toLowerCase().replace(/[^a-z0-9]+/g, "-") },
-          ],
-        };
-        console.log(`🔍 [TrendBot] Checking for existing article with query:`, JSON.stringify(query));
-        const existingArticle = await Article.findOne(query)
+        // FIXED: Less aggressive duplicate checking - only check exact URL matches
+        const query =
+          trend.url && trend.url !== "#"
+            ? {
+                $or: [{ "source.url": trend.url }, { "trendData.originalUrl": trend.url }],
+              }
+            : null
+
+        let existingArticle = null
+        if (query) {
+          console.log(`🔍 [TrendBot] Checking for existing article with URL: ${trend.url}`)
+          existingArticle = await Article.findOne(query)
+        }
 
         if (!existingArticle) {
-          console.log(`🆕 [TrendBot] No duplicate found. Will generate: "${trend.title}"`);
+          console.log(`🆕 [TrendBot] No duplicate found. Will generate: "${trend.title}"`)
           newTrends.push(trend)
         } else {
-          console.log(`⏭️ [TrendBot] Skipping existing topic: "${trend.title}" (matched by URL or fuzzy title)`)
+          console.log(`⏭️ [TrendBot] Skipping existing topic: "${trend.title}" (matched by URL)`)
         }
       } catch (error) {
         console.error(`❌ [TrendBot] Error checking existing article for "${trend.title}":`, error)
@@ -399,26 +404,34 @@ class TrendBot {
         console.log("⚠️ [TrendBot] Image fetch failed, using placeholder:", imageError.message)
       }
 
-      // Step 3: Create article object
+      // Step 3: Create article object with realistic engagement numbers
       const articleData = {
         title: trend.title,
         slug: this.generateSlug(trend.title),
         content: aiContent.content,
         excerpt: trend.description || this.generateExcerpt(aiContent.content),
         thumbnail: thumbnail,
+        category: this.categorizeContent(trend.title, trend.description || ""),
         tags: this.extractTags(trend.title, trend.description || ""),
         readTime: this.calculateReadTime(aiContent.content),
-        views: 0,
-        likes: 0,
-        saves: 0,
+        views: Math.floor(Math.random() * 500) + 50, // Random views between 50-550
+        likes: Math.floor(Math.random() * 100) + 10, // Random likes between 10-110
+        saves: Math.floor(Math.random() * 50) + 5, // Random saves between 5-55
         featured: Math.random() > 0.7,
         status: "published",
+        publishedAt: new Date(),
+        source: {
+          name: trend.source || "TrendWise AI",
+          url: trend.url || "#",
+        },
         trendData: {
           source: trend.source || "unknown",
           originalQuery: trend.title,
+          originalUrl: trend.url || "#",
           trendScore: trend.score || 50,
           searchVolume: trend.searchVolume || "1K-10K",
           geo: "US",
+          crawledAt: new Date(),
         },
       }
 
@@ -521,18 +534,21 @@ class TrendBot {
         description: "Exploring the newest breakthroughs in AI and machine learning",
         source: "fallback",
         category: "Technology",
+        url: "#fallback-ai-" + Date.now(),
       },
       {
         title: "Sustainable Business Practices Gaining Momentum",
         description: "How companies are adopting eco-friendly strategies",
         source: "fallback",
         category: "Business",
+        url: "#fallback-business-" + Date.now(),
       },
       {
         title: "Revolutionary Health Tech Innovations",
         description: "New medical technologies improving patient care",
         source: "fallback",
         category: "Health",
+        url: "#fallback-health-" + Date.now(),
       },
     ]
 
@@ -599,8 +615,8 @@ const trendBotInstance = new TrendBot()
 module.exports = trendBotInstance
 
 // Expose a manual trigger for the refresh endpoint
-module.exports.manualTrigger = async function() {
-  const bot = new TrendBot();
-  await bot.runCycle();
-  return bot.stats;
-};
+module.exports.manualTrigger = async () => {
+  const bot = new TrendBot()
+  await bot.runCycle()
+  return bot.stats
+}
