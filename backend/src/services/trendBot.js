@@ -1,6 +1,6 @@
-const { gnewsService } = require("./gnewsService")
-const { groqService } = require("./groqService")
-const { unsplashService } = require("./unsplashService")
+const gnewsService = require("./gnewsService")
+const groqService = require("./groqService")
+const unsplashService = require("./unsplashService")
 const Article = require("../models/Article")
 
 class TrendBot {
@@ -24,7 +24,11 @@ class TrendBot {
     this.isRunning = true
 
     // Run immediately
-    await this.generateArticles()
+    setTimeout(() => {
+      this.generateArticles().catch((error) => {
+        console.error("❌ [TrendBot] Initial run failed:", error.message)
+      })
+    }, 5000)
 
     // Set up interval
     this.interval = setInterval(async () => {
@@ -75,7 +79,7 @@ class TrendBot {
         try {
           // Check if article already exists
           const existingArticle = await Article.findOne({
-            $or: [{ title: newsItem.title }, { originalUrl: newsItem.url }],
+            $or: [{ title: newsItem.title }, { sourceUrl: newsItem.url }],
           })
 
           if (existingArticle) {
@@ -131,8 +135,9 @@ class TrendBot {
             views: Math.floor(Math.random() * 100) + 50,
             likes: Math.floor(Math.random() * 20) + 5,
             saves: Math.floor(Math.random() * 10) + 2,
-            source: generatedArticle.source || "TrendWise",
-            originalUrl: newsItem.url,
+            author: "TrendWise AI",
+            sourceUrl: newsItem.url,
+            originalSource: newsItem.source?.name || "Unknown",
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -237,4 +242,5 @@ class TrendBot {
 // Create singleton instance
 const trendBot = new TrendBot()
 
-module.exports = { trendBot }
+// Export the instance directly
+module.exports = trendBot
