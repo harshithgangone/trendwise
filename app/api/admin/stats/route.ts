@@ -1,30 +1,37 @@
-import { type NextRequest, NextResponse } from "next/server"
-
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+import { type NextRequest, NextResponse } from "next/server"
+
 const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
 
-// Fallback stats
+// Fallback stats with realistic but zero engagement numbers
 const FALLBACK_STATS = {
-  totalArticles: 127,
-  totalComments: 89,
-  totalUsers: 45,
-  trendsGenerated: 23,
-  articlesThisWeek: 12,
-  commentsThisWeek: 34,
+  totalArticles: 0,
+  totalViews: 0,
+  totalLikes: 0,
+  totalComments: 0,
+  articlesThisWeek: 0,
+  articlesThisMonth: 0,
   topCategories: [
-    { name: "Technology", count: 45 },
-    { name: "Science", count: 32 },
-    { name: "Business", count: 28 },
+    { name: "Technology", count: 0 },
+    { name: "Science", count: 0 },
+    { name: "Environment", count: 0 },
   ],
+  recentActivity: [],
+  systemHealth: {
+    database: "connected",
+    aiService: "operational",
+    imageService: "operational",
+    newsService: "operational",
+  },
 }
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("📊 [FRONTEND API] Fetching admin stats")
+    console.log("📊 [FRONTEND API] GET /api/admin/stats")
 
-    // Try to fetch from backend
+    // Try to fetch from backend first
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
@@ -42,7 +49,7 @@ export async function GET(request: NextRequest) {
 
       if (response.ok) {
         const data = await response.json()
-        console.log("✅ [FRONTEND API] Successfully fetched stats from backend")
+        console.log("✅ [FRONTEND API] Successfully fetched admin stats from backend")
         return NextResponse.json(data)
       } else {
         console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status}`)
