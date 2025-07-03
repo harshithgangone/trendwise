@@ -3,7 +3,7 @@ const Article = require("../models/Article")
 
 async function adminRoutes(fastify, options) {
   // Get admin dashboard stats
-  fastify.get("/stats", async (request, reply) => {
+  fastify.get("/admin/stats", async (request, reply) => {
     try {
       console.log("📊 [ADMIN API] Fetching dashboard stats...")
 
@@ -63,7 +63,7 @@ async function adminRoutes(fastify, options) {
   })
 
   // Get bot status
-  fastify.get("/bot-status", async (request, reply) => {
+  fastify.get("/admin/bot-status", async (request, reply) => {
     try {
       const status = trendBot.getStatus()
       console.log("🤖 [ADMIN API] Bot status requested")
@@ -88,7 +88,7 @@ async function adminRoutes(fastify, options) {
   })
 
   // Start/Stop bot
-  fastify.post("/toggle-bot", async (request, reply) => {
+  fastify.post("/admin/toggle-bot", async (request, reply) => {
     try {
       const { action } = request.body
       console.log(`🎛️ [ADMIN API] Bot ${action} requested`)
@@ -117,7 +117,7 @@ async function adminRoutes(fastify, options) {
   })
 
   // Trigger manual bot run
-  fastify.post("/trigger-bot", async (request, reply) => {
+  fastify.post("/admin/trigger-bot", async (request, reply) => {
     try {
       console.log("🎯 [ADMIN API] Manual bot run triggered")
 
@@ -135,7 +135,7 @@ async function adminRoutes(fastify, options) {
   })
 
   // Get data source status
-  fastify.get("/data-source-status", async (request, reply) => {
+  fastify.get("/admin/data-source-status", async (request, reply) => {
     try {
       console.log("📡 [ADMIN API] Data source status requested")
 
@@ -183,43 +183,8 @@ async function adminRoutes(fastify, options) {
     }
   })
 
-  // Get recent articles for admin
-  fastify.get("/articles", async (request, reply) => {
-    try {
-      const { page = 1, limit = 20 } = request.query
-      console.log(`📚 [ADMIN API] Fetching admin articles (page ${page})`)
-
-      const articles = await Article.find()
-        .sort({ createdAt: -1 })
-        .limit(limit * 1)
-        .skip((page - 1) * limit)
-        .select("title slug status createdAt views featured tags trendData.source")
-
-      const total = await Article.countDocuments()
-
-      console.log(`✅ [ADMIN API] Found ${articles.length} articles for admin`)
-
-      reply.send({
-        success: true,
-        articles,
-        pagination: {
-          page: Number.parseInt(page),
-          limit: Number.parseInt(limit),
-          total,
-          pages: Math.ceil(total / limit),
-        },
-      })
-    } catch (error) {
-      console.error("❌ [ADMIN API] Error fetching admin articles:", error.message)
-      reply.status(500).send({
-        success: false,
-        error: "Failed to fetch articles",
-      })
-    }
-  })
-
   // Delete article
-  fastify.delete("/articles/:id", async (request, reply) => {
+  fastify.delete("/admin/articles/:id", async (request, reply) => {
     try {
       const { id } = request.params
       console.log(`🗑️ [ADMIN API] Deleting article: ${id}`)
@@ -248,7 +213,7 @@ async function adminRoutes(fastify, options) {
   })
 
   // Update article status
-  fastify.patch("/articles/:id/status", async (request, reply) => {
+  fastify.patch("/admin/articles/:id/status", async (request, reply) => {
     try {
       const { id } = request.params
       const { status } = request.body
