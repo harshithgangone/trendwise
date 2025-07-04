@@ -55,7 +55,7 @@ export default function ProfilePage() {
     if (!session?.user?.id) return
 
     try {
-      setLoading(true)
+      // setLoading(true)
       setError(null)
       console.log(`👤 [PROFILE PAGE] Fetching preferences for user: ${session.user.id}`)
 
@@ -80,7 +80,7 @@ export default function ProfilePage() {
       console.error("❌ [PROFILE PAGE] Error:", error)
       setError("Failed to load user preferences")
     } finally {
-      setLoading(false)
+      // setLoading(false)
     }
   }
 
