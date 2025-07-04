@@ -59,7 +59,7 @@ export default function ProfilePage() {
       setError(null)
       console.log(`👤 [PROFILE PAGE] Fetching preferences for user: ${session.user.id}`)
 
-      const response = await fetch(`/api/user/preferences/${session.user.id}`, {
+      const response = await fetch(`/api/user/preferences`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
