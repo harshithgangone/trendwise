@@ -1,7 +1,9 @@
 const fastify = require("fastify")({ logger: false })
-const mongoose = require("mongoose")
 const cors = require("@fastify/cors")
 const path = require("path")
+
+// Import database connection function
+const { connectDB, mongoose } = require("./config/database")
 
 // Import routes
 const articleRoutes = require("./routes/articles")
@@ -25,7 +27,7 @@ console.log(`🔧 [Server] Node.js version: ${process.version}`)
 async function connectDatabase() {
   try {
     console.log("🗄️ [Database] Connecting to MongoDB...")
-    await mongoose.connect(MONGODB_URI)
+    await connectDB()
     console.log("✅ [Database] Connected to MongoDB successfully")
   } catch (error) {
     console.error("❌ [Database] Failed to connect to MongoDB:", error.message)

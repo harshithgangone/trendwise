@@ -2,6 +2,11 @@ const mongoose = require("mongoose")
 
 const connectDB = async () => {
   try {
+    // Check if already connected
+    if (mongoose.connection.readyState === 1) {
+      return mongoose
+    }
+
     const conn = await mongoose.connect(
       process.env.MONGODB_URI || "mongodb+srv://harshithmongo:HARSHAMDB1234@cluster0.kkwkg.mongodb.net/trendwise",
       {
@@ -11,12 +16,12 @@ const connectDB = async () => {
     )
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`)
+    return mongoose
   } catch (error) {
     console.error("❌ MongoDB connection error:", error)
-    process.exit(1)
+    throw error
   }
 }
 
-connectDB()
-
-module.exports = mongoose
+// Export both the connection function and mongoose instance
+module.exports = { connectDB, mongoose }

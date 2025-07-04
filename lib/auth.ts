@@ -1,6 +1,14 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
-import User from "@/backend/src/models/User" // Import the User model from backend
+
+// Import the database connection function and mongoose
+const { connectDB, mongoose } = require("@/backend/src/config/database")
+
+// Dynamically import the User model to avoid circular dependencies
+async function getUserModel() {
+  const User = require("@/backend/src/models/User")
+  return User
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -13,10 +21,11 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account, profile }) {
       if (account?.provider === "google") {
         try {
-          // Connect to MongoDB if not already connected
-          if (User.db.readyState !== 1) {
-            require("@/backend/src/config/database") // Re-initialize DB connection if needed
-          }
+          // Ensure database connection
+          await connectDB()
+          
+          // Get User model after connection is established
+          const User = await getUserModel()
 
           let existingUser = await User.findOne({ email: user.email })
 
@@ -48,9 +57,12 @@ export const authOptions: NextAuthOptions = {
       // Add user ID from MongoDB to session
       if (token.email) {
         try {
-          if (User.db.readyState !== 1) {
-            require("@/backend/src/config/database")
-          }
+          // Ensure database connection
+          await connectDB()
+          
+          // Get User model after connection is established
+          const User = await getUserModel()
+          
           const dbUser = await User.findOne({ email: token.email }).select("_id role")
           if (dbUser) {
             session.user.id = dbUser._id.toString()
