@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, Bookmark, Eye, User, Calendar, Mail, RefreshCw } from "lucide-react"
+import { Heart, Bookmark, Eye, User, Calendar, Mail, RefreshCw, AlertCircle } from "lucide-react"
 
 interface UserArticle {
   articleId: {
@@ -45,46 +45,131 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("liked")
 
+  // Debug logging
   useEffect(() => {
-    if (session?.user?.id) {
-      fetchUserPreferences()
+    console.log("🔍 [PROFILE DEBUG] Session status:", status)
+    console.log("🔍 [PROFILE DEBUG] Session data:", session)
+    console.log("🔍 [PROFILE DEBUG] User ID:", session?.user?.id)
+  }, [session, status])
+
+  useEffect(() => {
+    if (status === "loading") {
+      console.log("⏳ [PROFILE DEBUG] Session still loading...")
+      return
     }
-  }, [session?.user?.id])
+
+    if (status === "unauthenticated") {
+      console.log("🚫 [PROFILE DEBUG] User not authenticated")
+      setLoading(false)
+      return
+    }
+
+    if (session?.user?.id) {
+      console.log("✅ [PROFILE DEBUG] User authenticated, fetching preferences...")
+      fetchUserPreferences()
+    } else {
+      console.log("⚠️ [PROFILE DEBUG] Session exists but no user ID")
+      setLoading(false)
+      setError("User ID not found in session")
+    }
+  }, [session, status])
 
   const fetchUserPreferences = async () => {
-    if (!session?.user?.id) return
+    if (!session?.user?.id) {
+      console.log("❌ [PROFILE DEBUG] No user ID available for preferences fetch")
+      setLoading(false)
+      return
+    }
 
     try {
-      // setLoading(true)
+      setLoading(true)
       setError(null)
-      console.log(`👤 [PROFILE PAGE] Fetching preferences for user: ${session.user.id}`)
+      
+      console.log(`👤 [PROFILE DEBUG] Fetching preferences for user: ${session.user.id}`)
+      
+      // Try the direct API route first
+      const apiUrl = `/api/user/preferences`
+      console.log(`🌐 [PROFILE DEBUG] API URL: ${apiUrl}`)
 
-      const response = await fetch(`/api/user/preferences/${session.user.id}`, {
+      const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include", // Include cookies for authentication
       })
 
-      console.log(`👤 [PROFILE PAGE] Response status: ${response.status}`)
+      console.log(`📡 [PROFILE DEBUG] Response status: ${response.status}`)
+      console.log(`📡 [PROFILE DEBUG] Response headers:`, Object.fromEntries(response.headers.entries()))
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [PROFILE PAGE] Fetched user preferences:`, data.preferences)
-        setPreferences(data.preferences)
+        console.log(`✅ [PROFILE DEBUG] Fetched preferences successfully:`, data)
+        
+        // Validate data structure
+        if (data.success && data.preferences) {
+          setPreferences(data.preferences)
+          console.log(`✅ [PROFILE DEBUG] Preferences set:`, {
+            likedCount: data.preferences.likedArticles?.length || 0,
+            savedCount: data.preferences.savedArticles?.length || 0,
+            recentCount: data.preferences.recentlyViewed?.length || 0,
+          })
+        } else {
+          console.log(`⚠️ [PROFILE DEBUG] Invalid data structure:`, data)
+          // Set empty preferences if structure is invalid
+          setPreferences({
+            userId: session.user.id,
+            likedArticles: [],
+            savedArticles: [],
+            recentlyViewed: [],
+          })
+        }
       } else {
-        console.error(`❌ [PROFILE PAGE] Failed to fetch: ${response.status}`)
-        setError("Failed to load user preferences")
+        const errorText = await response.text()
+        console.error(`❌ [PROFILE DEBUG] Failed to fetch preferences: ${response.status}`)
+        console.error(`❌ [PROFILE DEBUG] Error response:`, errorText)
+        
+        setError(`Failed to load preferences (${response.status})`)
+        
+        // Set empty preferences as fallback
+        setPreferences({
+          userId: session.user.id,
+          likedArticles: [],
+          savedArticles: [],
+          recentlyViewed: [],
+        })
       }
     } catch (error) {
-      console.error("❌ [PROFILE PAGE] Error:", error)
-      setError("Failed to load user preferences")
+      console.error("❌ [PROFILE DEBUG] Network error:", error)
+      setError("Network error while loading preferences")
+      
+      // Set empty preferences as fallback
+      setPreferences({
+        userId: session?.user?.id || "",
+        likedArticles: [],
+        savedArticles: [],
+        recentlyViewed: [],
+      })
     } finally {
-      // setLoading(false)
+      setLoading(false)
+      console.log("🏁 [PROFILE DEBUG] Fetch completed, loading set to false")
     }
   }
 
+  // Debug current state
+  useEffect(() => {
+    console.log("🔍 [PROFILE DEBUG] Current state:", {
+      loading,
+      error,
+      hasPreferences: !!preferences,
+      sessionStatus: status,
+      hasSession: !!session,
+    })
+  }, [loading, error, preferences, status, session])
+
+  // Loading state
   if (status === "loading" || loading) {
+    console.log("⏳ [PROFILE DEBUG] Rendering loading state")
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
         <Header />
@@ -119,7 +204,9 @@ export default function ProfilePage() {
     )
   }
 
+  // Unauthenticated state
   if (status === "unauthenticated") {
+    console.log("🚫 [PROFILE DEBUG] Rendering unauthenticated state")
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
         <Header />
@@ -140,14 +227,16 @@ export default function ProfilePage() {
     )
   }
 
-  if (error) {
+  // Error state
+  if (error && !preferences) {
+    console.log("❌ [PROFILE DEBUG] Rendering error state:", error)
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
         <Header />
         <div className="container mx-auto px-4 py-8">
           <Card className="max-w-md mx-auto">
             <CardContent className="p-6 text-center">
-              <User className="w-12 h-12 text-red-400 mx-auto mb-4" />
+              <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
               <h2 className="text-xl font-semibold mb-2">Error Loading Profile</h2>
               <p className="text-gray-600 mb-4">{error}</p>
               <Button onClick={fetchUserPreferences}>
@@ -162,13 +251,18 @@ export default function ProfilePage() {
     )
   }
 
+  console.log("✅ [PROFILE DEBUG] Rendering main profile content")
+
   const likedArticles = preferences?.likedArticles || []
   const savedArticles = preferences?.savedArticles || []
   const recentlyViewed = preferences?.recentlyViewed || []
 
   const renderArticleCard = (item: UserArticle, type: "liked" | "saved" | "recent") => {
     const article = item.articleId
-    if (!article) return null
+    if (!article) {
+      console.log("⚠️ [PROFILE DEBUG] Article data missing for item:", item)
+      return null
+    }
 
     return (
       <motion.div
@@ -367,6 +461,31 @@ export default function ProfilePage() {
               </TabsContent>
             </Tabs>
           </motion.div>
+
+          {/* Debug Info (only in development) */}
+          {process.env.NODE_ENV === 'development' && (
+            <Card className="mt-8 bg-gray-50">
+              <CardContent className="p-4">
+                <h3 className="font-semibold mb-2">Debug Info</h3>
+                <pre className="text-xs bg-white p-2 rounded overflow-auto">
+                  {JSON.stringify({
+                    sessionStatus: status,
+                    hasSession: !!session,
+                    userId: session?.user?.id,
+                    loading,
+                    error,
+                    hasPreferences: !!preferences,
+                    preferencesStructure: preferences ? {
+                      userId: preferences.userId,
+                      likedCount: preferences.likedArticles?.length,
+                      savedCount: preferences.savedArticles?.length,
+                      recentCount: preferences.recentlyViewed?.length,
+                    } : null
+                  }, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </main>
       <Footer />
