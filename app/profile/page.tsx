@@ -1,278 +1,313 @@
 "use client"
 
-import { useSession } from "next-auth/react"
 import { useState, useEffect } from "react"
-import { Header } from "@/components/header"
-import { Footer } from "@/components/footer"
-import { ArticleCard } from "@/components/article-card"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { User, Mail, CalendarDays, Bookmark, Heart, Eye } from "lucide-react"
+import { useSession } from "next-auth/react"
 import { motion } from "framer-motion"
+import Link from "next/link"
+import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Heart, Bookmark, Eye, User, Calendar, Mail } from "lucide-react"
 import { useUserPreferences } from "@/hooks/use-user-preferences"
-import { LoadingSpinner } from "@/components/loading-spinner"
 
-interface Article {
-  _id: string
-  title: string
-  slug: string
-  excerpt: string
-  thumbnail: string
-  createdAt: string
-  tags: string[]
-  readTime: number
-  views?: number
-  featured?: boolean
+interface UserArticle {
+  articleId: {
+    _id: string
+    title: string
+    slug: string
+    excerpt: string
+    thumbnail: string
+    createdAt: string
+    category: string
+    views: number
+    likes: number
+    saves: number
+  }
+  likedAt?: string
+  savedAt?: string
 }
 
 export default function ProfilePage() {
   const { data: session, status } = useSession()
-  const { preferences } = useUserPreferences()
-  const [savedArticles, setSavedArticles] = useState<Article[]>([])
-  const [likedArticles, setLikedArticles] = useState<Article[]>([])
-  const [recentlyViewed, setRecentlyViewed] = useState<Article[]>([])
-  const [loading, setLoading] = useState(true)
+  const { preferences, loading, error, refreshPreferences } = useUserPreferences()
+  const [activeTab, setActiveTab] = useState("liked")
 
   useEffect(() => {
-    if (session?.user && preferences) {
-      fetchUserArticles()
+    if (session?.user?.id && !loading) {
+      refreshPreferences()
     }
-  }, [session, preferences])
+  }, [session?.user?.id])
 
-  const fetchUserArticles = async () => {
-    setLoading(true)
-    try {
-      // Fetch saved articles
-      if (preferences.savedArticles.length > 0) {
-        const savedPromises = preferences.savedArticles.map(async (id) => {
-          try {
-            const response = await fetch(`/api/articles/by-id/${id}`)
-            if (response.ok) {
-              return await response.json()
-            }
-          } catch (error) {
-            console.error(`Error fetching saved article ${id}:`, error)
-          }
-          return null
-        })
-        const savedResults = await Promise.all(savedPromises)
-        setSavedArticles(savedResults.filter(Boolean))
-      }
-
-      // Fetch liked articles
-      if (preferences.likedArticles.length > 0) {
-        const likedPromises = preferences.likedArticles.map(async (id) => {
-          try {
-            const response = await fetch(`/api/articles/by-id/${id}`)
-            if (response.ok) {
-              return await response.json()
-            }
-          } catch (error) {
-            console.error(`Error fetching liked article ${id}:`, error)
-          }
-          return null
-        })
-        const likedResults = await Promise.all(likedPromises)
-        setLikedArticles(likedResults.filter(Boolean))
-      }
-
-      // Fetch recently viewed articles
-      if (preferences.recentlyViewed.length > 0) {
-        const viewedPromises = preferences.recentlyViewed.slice(0, 5).map(async (id) => {
-          try {
-            const response = await fetch(`/api/articles/by-id/${id}`)
-            if (response.ok) {
-              return await response.json()
-            }
-          } catch (error) {
-            console.error(`Error fetching viewed article ${id}:`, error)
-          }
-          return null
-        })
-        const viewedResults = await Promise.all(viewedPromises)
-        setRecentlyViewed(viewedResults.filter(Boolean))
-      }
-    } catch (error) {
-      console.error("Error fetching user articles:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (status === "loading") {
+  if (status === "loading" || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
-        <LoadingSpinner />
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          <Card className="mb-8">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <Skeleton className="h-16 w-16 rounded-full" />
+                <div className="flex-1">
+                  <Skeleton className="h-6 w-48 mb-2" />
+                  <Skeleton className="h-4 w-64" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i}>
+                <Skeleton className="h-48 w-full" />
+                <CardContent className="p-4">
+                  <Skeleton className="h-4 w-full mb-2" />
+                  <Skeleton className="h-4 w-3/4" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
 
-  if (!session) {
+  if (status === "unauthenticated") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
-        <Card className="max-w-md mx-auto shadow-lg">
-          <CardContent className="pt-6 text-center">
-            <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
-            <p className="text-gray-600">Please sign in to view your profile.</p>
+      <div className="container mx-auto px-4 py-8">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <User className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Sign In Required</h2>
+            <p className="text-gray-600 mb-4">Please sign in to view your profile and saved articles.</p>
+            <Link href="/login">
+              <Button>Sign In</Button>
+            </Link>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Header />
-      <main className="container mx-auto px-4 py-12">
-        <motion.div
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-6xl mx-auto"
-        >
-          {/* Profile Header */}
-          <Card className="shadow-xl mb-8">
-            <CardHeader className="text-center pb-6">
-              <Avatar className="h-24 w-24 mx-auto mb-4 border-4 border-blue-500 shadow-md">
-                <AvatarImage src={session.user?.image || ""} alt={session.user?.name || "User Avatar"} />
-                <AvatarFallback className="text-4xl font-bold bg-blue-100 text-blue-600">
-                  {session.user?.name?.charAt(0).toUpperCase() || "U"}
-                </AvatarFallback>
-              </Avatar>
-              <CardTitle className="text-3xl font-bold gradient-text">{session.user?.name}</CardTitle>
-              <p className="text-gray-600 text-lg">{session.user?.role || "User"}</p>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="flex items-center space-x-4 text-gray-700">
-                  <Mail className="h-6 w-6 text-blue-500" />
-                  <span className="text-lg">{session.user?.email}</span>
-                </div>
-                <div className="flex items-center space-x-4 text-gray-700">
-                  <CalendarDays className="h-6 w-6 text-blue-500" />
-                  <span className="text-lg">Joined: {new Date().toLocaleDateString()}</span>
-                </div>
-                <div className="flex items-center space-x-4 text-gray-700">
-                  <User className="h-6 w-6 text-blue-500" />
-                  <span className="text-lg">ID: {session.user.id?.slice(-8) || "N/A"}</span>
-                </div>
-              </div>
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <User className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Loading Profile</h2>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button onClick={refreshPreferences}>Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-4 pt-6 border-t">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">{preferences.savedArticles.length}</div>
-                  <div className="text-sm text-gray-600">Saved Articles</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{preferences.likedArticles.length}</div>
-                  <div className="text-sm text-gray-600">Liked Articles</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{preferences.recentlyViewed.length}</div>
-                  <div className="text-sm text-gray-600">Recently Viewed</div>
+  const likedArticles = preferences?.likedArticles || []
+  const savedArticles = preferences?.savedArticles || []
+  const recentlyViewed = preferences?.recentlyViewed || []
+
+  const renderArticleCard = (item: UserArticle, type: "liked" | "saved" | "recent") => {
+    const article = item.articleId
+    if (!article) return null
+
+    return (
+      <motion.div
+        key={article._id}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
+          <div className="aspect-video relative overflow-hidden">
+            <img
+              src={article.thumbnail || "/placeholder.svg?height=200&width=300"}
+              alt={article.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge variant="secondary" className="text-xs">
+                {article.category}
+              </Badge>
+              {type === "liked" && <Heart className="w-4 h-4 text-red-500 fill-current" />}
+              {type === "saved" && <Bookmark className="w-4 h-4 text-blue-500 fill-current" />}
+              {type === "recent" && <Eye className="w-4 h-4 text-green-500" />}
+            </div>
+            <h3 className="font-semibold text-sm mb-2 line-clamp-2">{article.title}</h3>
+            <p className="text-xs text-gray-600 mb-3 line-clamp-2">{article.excerpt}</p>
+            <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {new Date(article.createdAt).toLocaleDateString()}
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <Eye className="w-3 h-3" />
+                  {article.views || 0}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Heart className="w-3 h-3" />
+                  {article.likes || 0}
+                </span>
+              </div>
+            </div>
+            <Link href={`/article/${article.slug}`}>
+              <Button size="sm" className="w-full">
+                Read Article
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </motion.div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Profile Header */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <Card className="mb-8">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-6">
+                <Avatar className="h-16 w-16">
+                  <AvatarImage src={session?.user?.image || ""} alt={session?.user?.name || ""} />
+                  <AvatarFallback className="text-2xl">
+                    {session?.user?.name?.charAt(0) || session?.user?.email?.charAt(0) || "U"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1">
+                  <h1 className="text-2xl font-bold text-gray-900 mb-2">{session?.user?.name || "User Profile"}</h1>
+                  <div className="flex items-center gap-4 text-gray-600">
+                    <span className="flex items-center gap-1">
+                      <Mail className="w-4 h-4" />
+                      {session?.user?.email}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      Member since {new Date().getFullYear()}
+                    </span>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
+        </motion.div>
 
-          {/* User Content Tabs */}
-          <Tabs defaultValue="saved" className="w-full">
+        {/* Stats */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8"
+        >
+          <Card>
+            <CardContent className="p-4 text-center">
+              <Heart className="w-6 h-6 text-red-500 mx-auto mb-2" />
+              <div className="text-2xl font-bold">{likedArticles.length}</div>
+              <div className="text-sm text-gray-600">Liked Articles</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <Bookmark className="w-6 h-6 text-blue-500 mx-auto mb-2" />
+              <div className="text-2xl font-bold">{savedArticles.length}</div>
+              <div className="text-sm text-gray-600">Saved Articles</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <Eye className="w-6 h-6 text-green-500 mx-auto mb-2" />
+              <div className="text-2xl font-bold">{recentlyViewed.length}</div>
+              <div className="text-sm text-gray-600">Recently Viewed</div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* Content Tabs */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.4 }}
+        >
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="saved" className="flex items-center space-x-2">
-                <Bookmark className="h-4 w-4" />
-                <span>Saved Articles</span>
-                <Badge variant="secondary">{preferences.savedArticles.length}</Badge>
+              <TabsTrigger value="liked" className="flex items-center gap-2">
+                <Heart className="w-4 h-4" />
+                Liked ({likedArticles.length})
               </TabsTrigger>
-              <TabsTrigger value="liked" className="flex items-center space-x-2">
-                <Heart className="h-4 w-4" />
-                <span>Liked Articles</span>
-                <Badge variant="secondary">{preferences.likedArticles.length}</Badge>
+              <TabsTrigger value="saved" className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4" />
+                Saved ({savedArticles.length})
               </TabsTrigger>
-              <TabsTrigger value="recent" className="flex items-center space-x-2">
-                <Eye className="h-4 w-4" />
-                <span>Recently Viewed</span>
-                <Badge variant="secondary">{preferences.recentlyViewed.length}</Badge>
+              <TabsTrigger value="recent" className="flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                Recent ({recentlyViewed.length})
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="saved" className="mt-8">
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold mb-2">Saved Articles</h2>
-                <p className="text-gray-600">Articles you've saved for later reading.</p>
-              </div>
-              {loading ? (
-                <LoadingSpinner />
-              ) : savedArticles.length > 0 ? (
+            <TabsContent value="liked" className="mt-6">
+              {likedArticles.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {savedArticles.map((article, index) => (
-                    <ArticleCard key={article._id} article={article} index={index} />
-                  ))}
+                  {likedArticles.map((item) => renderArticleCard(item, "liked"))}
                 </div>
               ) : (
-                <Card className="text-center py-12">
-                  <CardContent>
-                    <Bookmark className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                    <h3 className="text-xl font-semibold mb-2">No Saved Articles</h3>
-                    <p className="text-gray-600">Start saving articles you want to read later!</p>
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Heart className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Liked Articles</h3>
+                    <p className="text-gray-600 mb-4">Start liking articles to see them here!</p>
+                    <Link href="/">
+                      <Button>Explore Articles</Button>
+                    </Link>
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
 
-            <TabsContent value="liked" className="mt-8">
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold mb-2">Liked Articles</h2>
-                <p className="text-gray-600">Articles you've liked and enjoyed.</p>
-              </div>
-              {loading ? (
-                <LoadingSpinner />
-              ) : likedArticles.length > 0 ? (
+            <TabsContent value="saved" className="mt-6">
+              {savedArticles.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {likedArticles.map((article, index) => (
-                    <ArticleCard key={article._id} article={article} index={index} />
-                  ))}
+                  {savedArticles.map((item) => renderArticleCard(item, "saved"))}
                 </div>
               ) : (
-                <Card className="text-center py-12">
-                  <CardContent>
-                    <Heart className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                    <h3 className="text-xl font-semibold mb-2">No Liked Articles</h3>
-                    <p className="text-gray-600">Like articles to show your appreciation!</p>
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Bookmark className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Saved Articles</h3>
+                    <p className="text-gray-600 mb-4">Start saving articles to read them later!</p>
+                    <Link href="/">
+                      <Button>Explore Articles</Button>
+                    </Link>
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
 
-            <TabsContent value="recent" className="mt-8">
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold mb-2">Recently Viewed</h2>
-                <p className="text-gray-600">Articles you've recently read or visited.</p>
-              </div>
-              {loading ? (
-                <LoadingSpinner />
-              ) : recentlyViewed.length > 0 ? (
+            <TabsContent value="recent" className="mt-6">
+              {recentlyViewed.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {recentlyViewed.map((article, index) => (
-                    <ArticleCard key={article._id} article={article} index={index} />
-                  ))}
+                  {recentlyViewed.map((item) => renderArticleCard(item, "recent"))}
                 </div>
               ) : (
-                <Card className="text-center py-12">
-                  <CardContent>
-                    <Eye className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                    <h3 className="text-xl font-semibold mb-2">No Recent Activity</h3>
-                    <p className="text-gray-600">Start reading articles to see your history here!</p>
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Eye className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Recently Viewed Articles</h3>
+                    <p className="text-gray-600 mb-4">Articles you read will appear here!</p>
+                    <Link href="/">
+                      <Button>Explore Articles</Button>
+                    </Link>
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
           </Tabs>
         </motion.div>
-      </main>
-      <Footer />
+      </div>
     </div>
   )
 }

@@ -1,36 +1,33 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Header } from "@/components/header"
-import { Footer } from "@/components/footer"
-import { ArticleCard } from "@/components/article-card"
-import { LoadingSpinner } from "@/components/loading-spinner"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { TrendingUp, FlameIcon as Fire, BarChart3, RefreshCw } from "lucide-react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
+import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { ArticleGrid } from "@/components/article-grid"
+import { TrendingUp, FlameIcon as Fire, Eye, Heart, Bookmark } from "lucide-react"
 
-interface Article {
+interface TrendingArticle {
   _id: string
   title: string
   slug: string
   excerpt: string
   thumbnail: string
+  author: string
   createdAt: string
-  tags: string[]
   readTime: number
-  views?: number
+  views: number
+  likes: number
+  saves: number
+  category: string
+  tags: string[]
   featured?: boolean
-  trendData?: {
-    trendScore: number
-    searchVolume: string
-    source: string
-  }
+  trending?: boolean
 }
 
 export default function TrendingPage() {
-  const [articles, setArticles] = useState<Article[]>([])
+  const [articles, setArticles] = useState<TrendingArticle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,22 +37,28 @@ export default function TrendingPage() {
 
   const fetchTrendingArticles = async () => {
     try {
-      setLoading(true)
-      setError(null)
+      console.log("🔥 [TRENDING PAGE] Fetching trending articles...")
 
-      console.log("🔥 [FRONTEND] Fetching trending articles...")
-      const response = await fetch("/api/articles/trending")
-      const data = await response.json()
+      const response = await fetch("/api/articles/trending", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
 
-      if (data.success) {
+      console.log(`🔥 [TRENDING PAGE] Response status: ${response.status}`)
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log(`✅ [TRENDING PAGE] Fetched ${data.articles?.length || 0} trending articles`)
         setArticles(data.articles || [])
-        console.log(`✅ [FRONTEND] Loaded ${data.articles?.length || 0} trending articles`)
       } else {
-        throw new Error(data.error || "Failed to fetch trending articles")
+        console.error(`❌ [TRENDING PAGE] Failed to fetch: ${response.status}`)
+        setError("Failed to load trending articles")
       }
     } catch (error) {
-      console.error("❌ [FRONTEND] Error fetching trending articles:", error)
-      setError("Failed to load trending articles. Please try again.")
+      console.error("❌ [TRENDING PAGE] Error:", error)
+      setError("Failed to load trending articles")
     } finally {
       setLoading(false)
     }
@@ -63,169 +66,131 @@ export default function TrendingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Header />
-        <div className="container mx-auto px-4 py-12">
-          <LoadingSpinner />
+      <div className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <Skeleton className="h-12 w-64 mb-4" />
+          <Skeleton className="h-6 w-96" />
         </div>
-        <Footer />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i} className="overflow-hidden">
+              <Skeleton className="h-48 w-full" />
+              <CardContent className="p-6">
+                <Skeleton className="h-6 w-full mb-2" />
+                <Skeleton className="h-4 w-3/4 mb-4" />
+                <div className="flex gap-2 mb-4">
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-6 w-16" />
+                </div>
+                <div className="flex justify-between">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <Fire className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Unable to Load Trending Articles</h2>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button onClick={fetchTrendingArticles}>Try Again</Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      <Header />
-      <main className="container mx-auto px-4 py-12">
-        {/* Hero Section */}
+    <div className="container mx-auto px-4 py-8">
+      {/* Header */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="mb-12 text-center"
+      >
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <Fire className="w-8 h-8 text-red-500" />
+          <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
+            Trending Now
+          </h1>
+          <TrendingUp className="w-8 h-8 text-orange-500" />
+        </div>
+        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+          Discover the most popular articles that everyone is talking about right now
+        </p>
+      </motion.div>
+
+      {/* Stats */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+        className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8"
+      >
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Fire className="w-6 h-6 text-red-500 mx-auto mb-2" />
+            <div className="text-2xl font-bold">{articles.length}</div>
+            <div className="text-sm text-gray-600">Trending Articles</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Eye className="w-6 h-6 text-blue-500 mx-auto mb-2" />
+            <div className="text-2xl font-bold">
+              {articles.reduce((sum, article) => sum + (article.views || 0), 0).toLocaleString()}
+            </div>
+            <div className="text-sm text-gray-600">Total Views</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Heart className="w-6 h-6 text-pink-500 mx-auto mb-2" />
+            <div className="text-2xl font-bold">
+              {articles.reduce((sum, article) => sum + (article.likes || 0), 0).toLocaleString()}
+            </div>
+            <div className="text-sm text-gray-600">Total Likes</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 text-center">
+            <Bookmark className="w-6 h-6 text-green-500 mx-auto mb-2" />
+            <div className="text-2xl font-bold">
+              {articles.reduce((sum, article) => sum + (article.saves || 0), 0).toLocaleString()}
+            </div>
+            <div className="text-sm text-gray-600">Total Saves</div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* Articles Grid */}
+      {articles.length > 0 ? (
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="text-center mb-16"
+          transition={{ duration: 0.6, delay: 0.4 }}
         >
-          <div className="flex items-center justify-center mb-6">
-            <div className="p-4 bg-gradient-to-r from-red-500 to-orange-500 rounded-2xl shadow-large">
-              <Fire className="h-12 w-12 text-white" />
-            </div>
-          </div>
-          <h1 className="text-5xl md:text-6xl font-black mb-6 gradient-text">Trending Now</h1>
-          <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-            Discover the hottest topics and most engaging content based on real-time data and AI analysis.
-          </p>
-          <Button onClick={fetchTrendingArticles} className="btn-primary">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh Trends
-          </Button>
+          <ArticleGrid articles={articles} />
         </motion.div>
-
-        {/* Trending Stats */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16"
-        >
-          <Card className="card-professional">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Trending Articles</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{articles.length}</div>
-              <p className="text-xs text-muted-foreground">Currently trending</p>
-            </CardContent>
-          </Card>
-
-          <Card className="card-professional">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Views</CardTitle>
-              <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {articles.reduce((sum, article) => sum + (article.views || 0), 0).toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">Across all trending content</p>
-            </CardContent>
-          </Card>
-
-          <Card className="card-professional">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg Trend Score</CardTitle>
-              <Fire className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {articles.length > 0
-                  ? Math.round(
-                      articles.reduce((sum, article) => sum + (article.trendData?.trendScore || 0), 0) /
-                        articles.length,
-                    )
-                  : 0}
-              </div>
-              <p className="text-xs text-muted-foreground">Out of 100</p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Error State */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="text-center py-12"
-          >
-            <Card className="max-w-md mx-auto shadow-lg border-red-200">
-              <CardContent className="pt-6">
-                <div className="text-red-500 mb-4 text-lg font-medium">{error}</div>
-                <Button onClick={fetchTrendingArticles} className="btn-primary">
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Try Again
-                </Button>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* Articles Grid */}
-        {!error && articles.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-          >
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold text-gray-800">Hot Topics</h2>
-              <div className="flex items-center space-x-2">
-                <Badge variant="secondary" className="bg-red-100 text-red-700">
-                  Live Updates
-                </Badge>
-                <Badge variant="outline">{articles.length} Articles</Badge>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {articles.map((article, index) => (
-                <motion.div
-                  key={article._id}
-                  initial={{ opacity: 0, y: 30 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: index * 0.1 }}
-                >
-                  <ArticleCard article={article} index={index} />
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Empty State */}
-        {!error && articles.length === 0 && !loading && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="text-center py-20"
-          >
-            <Card className="max-w-md mx-auto shadow-lg">
-              <CardContent className="pt-6">
-                <Fire className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-2xl font-bold text-gray-800 mb-4">No Trending Content Yet</h3>
-                <p className="text-gray-600 mb-6">
-                  Our AI is analyzing the latest trends. Check back soon for hot topics!
-                </p>
-                <Button onClick={fetchTrendingArticles} className="btn-primary">
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Check for Updates
-                </Button>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-      </main>
-      <Footer />
+      ) : (
+        <Card className="max-w-md mx-auto">
+          <CardContent className="p-6 text-center">
+            <TrendingUp className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">No Trending Articles</h2>
+            <p className="text-gray-600">Check back later for trending content!</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
