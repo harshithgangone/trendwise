@@ -89,6 +89,8 @@ export async function POST(request: NextRequest) {
     const { articleId, content } = body
 
     console.log(`💬 [COMMENTS API] Posting comment for article: ${articleId}`)
+    console.log(`💬 [COMMENTS API] User: ${session.user.email}`)
+    console.log(`💬 [COMMENTS API] Content: ${content?.substring(0, 50)}...`)
 
     if (!articleId || !content || articleId === "undefined") {
       console.log("❌ [COMMENTS API] Missing required fields")
@@ -148,6 +150,8 @@ export async function POST(request: NextRequest) {
       })
 
       clearTimeout(timeoutId)
+
+      console.log(`💬 [COMMENTS API] Backend response status: ${response.status}`)
 
       if (response.ok) {
         const data = await response.json()

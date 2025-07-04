@@ -4,6 +4,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
+const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
@@ -21,9 +23,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     console.log(`🔖 [SAVE API] Processing real save for article: ${id} by user: ${session.user.id}`)
 
-    // Try to update save status in backend
     try {
-      const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+
       const response = await fetch(`${BACKEND_URL}/api/articles/${id}/save`, {
         method: "POST",
         headers: {
@@ -33,7 +36,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           userId: session.user.id,
           userEmail: session.user.email,
         }),
+        signal: controller.signal,
       })
+
+      clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
@@ -45,10 +51,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
           articleId: id,
         })
       } else {
-        console.log(`⚠️ [SAVE API] Backend failed`)
+        const errorText = await response.text()
+        console.log(`⚠️ [SAVE API] Backend failed: ${response.status} - ${errorText}`)
       }
     } catch (backendError) {
-      console.log(`⚠️ [SAVE API] Backend unavailable`)
+      console.log(`⚠️ [SAVE API] Backend unavailable:`, backendError)
     }
 
     // Return error if backend is unavailable
