@@ -2,13 +2,27 @@
 
 import { useState, useEffect } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import { motion } from "framer-motion"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
-import { Heart, Bookmark, Share2, Eye, Clock, Calendar, Twitter, Facebook, Linkedin, Copy, Check } from "lucide-react"
+import {
+  Heart,
+  Bookmark,
+  Share2,
+  Eye,
+  Clock,
+  Calendar,
+  Twitter,
+  Facebook,
+  Linkedin,
+  Copy,
+  Check,
+  ArrowLeft,
+} from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
@@ -55,15 +69,17 @@ export function ArticleContent({ article }: ArticleContentProps) {
         })
         if (response.ok) {
           const data = await response.json()
-          setViewCount(data.views)
+          setViewCount(data.views || viewCount + 1)
         }
       } catch (error) {
         console.error("Error tracking view:", error)
+        // Optimistically increment view count
+        setViewCount((prev) => prev + 1)
       }
     }
 
     trackView()
-  }, [article._id])
+  }, [article._id, viewCount])
 
   const handleLike = async () => {
     if (!session) {
@@ -177,6 +193,22 @@ export function ArticleContent({ article }: ArticleContentProps) {
       transition={{ duration: 0.6 }}
       className="max-w-4xl mx-auto"
     >
+      {/* Back Navigation */}
+      <motion.div
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5 }}
+        className="mb-8"
+      >
+        <Link
+          href="/"
+          className="inline-flex items-center text-gray-600 hover:text-gray-900 transition-colors duration-200"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Articles
+        </Link>
+      </motion.div>
+
       {/* Article Header */}
       <header className="mb-8">
         {/* Category and Badges */}

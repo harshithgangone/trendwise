@@ -34,10 +34,10 @@ async function getArticle(slug: string): Promise<Article | null> {
   try {
     console.log(`🔍 [ARTICLE PAGE] Fetching article with slug: ${slug}`)
 
-    // Get the base URL for the API call
+    // Use the current domain for API calls
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+      : "https://trendwise-frontend.vercel.app"
 
     console.log(`🌐 [ARTICLE PAGE] Using base URL: ${baseUrl}`)
 

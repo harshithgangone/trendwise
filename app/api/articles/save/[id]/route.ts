@@ -4,10 +4,9 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 
-const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
-
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const { id } = params
     const session = await getServerSession(authOptions)
 
     if (!session) {
@@ -20,26 +19,24 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
-    const { id } = params
     console.log(`🔖 [SAVE API] Processing save for article: ${id}`)
 
     // Try to update save status in backend
     try {
+      const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
       const response = await fetch(`${BACKEND_URL}/api/articles/${id}/save`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.user.email}`,
         },
         body: JSON.stringify({
-          userId: session.user.email,
+          userId: session.user.id,
         }),
-        signal: AbortSignal.timeout(5000),
       })
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [SAVE API] Successfully processed save:`, data)
+        console.log(`✅ [SAVE API] Successfully processed save in backend`)
         return NextResponse.json({
           success: true,
           saved: data.saved,
@@ -50,15 +47,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       console.log(`⚠️ [SAVE API] Backend unavailable, using fallback`)
     }
 
-    // Fallback response - simulate save toggle
+    // Fallback response
     const saved = Math.random() > 0.5
     return NextResponse.json({
       success: true,
       saved: saved,
-      saves: Math.floor(Math.random() * 20) + (saved ? 1 : 0),
+      saves: Math.floor(Math.random() * 30) + 5,
     })
   } catch (error) {
-    console.error(`❌ [SAVE API] Error processing save:`, error)
+    console.error("❌ [SAVE API] Error processing save:", error)
     return NextResponse.json(
       {
         success: false,
