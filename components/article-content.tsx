@@ -1,16 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useSession } from "next-auth/react"
 import Image from "next/image"
-import Link from "next/link"
 import { motion } from "framer-motion"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
-import { useToast } from "@/hooks/use-toast"
-import { Heart, Bookmark, Share2, Eye, Clock, Calendar, User, Tag, ArrowLeft, Check } from "lucide-react"
+import { Heart, Bookmark, Share2, Eye, Clock, Calendar, Twitter, Facebook, Linkedin, Copy, Check } from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
+import { useSession } from "next-auth/react"
 
 interface Article {
   _id: string
@@ -45,26 +46,24 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const [viewCount, setViewCount] = useState(article.views || 0)
   const [copied, setCopied] = useState(false)
 
+  // Track view on component mount
   useEffect(() => {
-    // Track view when component mounts
+    const trackView = async () => {
+      try {
+        const response = await fetch(`/api/articles/view/${article._id}`, {
+          method: "POST",
+        })
+        if (response.ok) {
+          const data = await response.json()
+          setViewCount(data.views)
+        }
+      } catch (error) {
+        console.error("Error tracking view:", error)
+      }
+    }
+
     trackView()
   }, [article._id])
-
-  const trackView = async () => {
-    try {
-      const response = await fetch(`/api/articles/view/${article._id}`, {
-        method: "POST",
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setViewCount(data.views || viewCount + 1)
-      }
-    } catch (error) {
-      console.error("Error tracking view:", error)
-      // Optimistically increment view count
-      setViewCount((prev) => prev + 1)
-    }
-  }
 
   const handleLike = async () => {
     if (!session) {
@@ -134,22 +133,18 @@ export function ArticleContent({ article }: ArticleContentProps) {
     }
   }
 
-  const handleShare = async () => {
+  const handleShare = async (platform?: string) => {
     const url = `${window.location.origin}/article/${article.slug}`
-    const shareData = {
-      title: article.title,
-      text: article.excerpt,
-      url: url,
-    }
+    const text = `Check out this article: ${article.title}`
 
     try {
-      if (navigator.share && navigator.canShare(shareData)) {
-        await navigator.share(shareData)
-        toast({
-          title: "Shared Successfully!",
-          description: "Article shared via native sharing.",
-        })
-      } else {
+      if (platform === "twitter") {
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`)
+      } else if (platform === "facebook") {
+        window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`)
+      } else if (platform === "linkedin") {
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`)
+      } else if (platform === "copy") {
         await navigator.clipboard.writeText(url)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
@@ -157,44 +152,35 @@ export function ArticleContent({ article }: ArticleContentProps) {
           title: "Link Copied!",
           description: "Article link copied to clipboard.",
         })
+      } else if (navigator.share) {
+        await navigator.share({
+          title: article.title,
+          text: article.excerpt,
+          url: url,
+        })
+      } else {
+        await navigator.clipboard.writeText(url)
+        toast({
+          title: "Link Copied!",
+          description: "Article link copied to clipboard.",
+        })
       }
     } catch (error) {
       console.error("Error sharing:", error)
-      toast({
-        title: "Share Failed",
-        description: "Unable to share article. Please try again.",
-        variant: "destructive",
-      })
     }
   }
 
   return (
-    <article className="max-w-4xl mx-auto">
-      {/* Back Navigation */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.5 }}
-        className="mb-8"
-      >
-        <Link
-          href="/"
-          className="inline-flex items-center text-gray-600 hover:text-gray-900 transition-colors duration-200"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Articles
-        </Link>
-      </motion.div>
-
+    <motion.article
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6 }}
+      className="max-w-4xl mx-auto"
+    >
       {/* Article Header */}
-      <motion.header
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="mb-8"
-      >
-        {/* Category and Featured Badge */}
-        <div className="flex items-center gap-3 mb-4">
+      <header className="mb-8">
+        {/* Category and Badges */}
+        <div className="flex items-center gap-2 mb-4">
           <Badge variant="secondary" className="text-sm">
             {article.category}
           </Badge>
@@ -210,100 +196,85 @@ export function ArticleContent({ article }: ArticleContentProps) {
         {/* Excerpt */}
         <p className="text-xl text-gray-600 mb-8 leading-relaxed">{article.excerpt}</p>
 
-        {/* Article Meta */}
-        <div className="flex flex-wrap items-center gap-6 text-gray-500 mb-8">
-          <div className="flex items-center">
-            <User className="w-4 h-4 mr-2" />
-            <span>{article.author}</span>
+        {/* Author and Meta Info */}
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <Avatar className="h-12 w-12">
+              <AvatarImage src="/placeholder.svg" alt={article.author} />
+              <AvatarFallback className="text-lg font-semibold">{article.author.charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-semibold text-gray-900">{article.author}</p>
+              <div className="flex items-center gap-4 text-sm text-gray-600">
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-4 h-4" />
+                  {formatDateTime(article.createdAt)}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  {article.readTime} min read
+                </span>
+                <span className="flex items-center gap-1">
+                  <Eye className="w-4 h-4" />
+                  {viewCount.toLocaleString()} views
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center">
-            <Calendar className="w-4 h-4 mr-2" />
-            <span>{formatDateTime(article.createdAt)}</span>
-          </div>
-          <div className="flex items-center">
-            <Clock className="w-4 h-4 mr-2" />
-            <span>{article.readTime} min read</span>
-          </div>
-          <div className="flex items-center">
-            <Eye className="w-4 h-4 mr-2" />
-            <span>{viewCount.toLocaleString()} views</span>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLike}
+              className={`flex items-center gap-2 ${isLiked ? "bg-red-50 text-red-600 border-red-200" : ""}`}
+            >
+              <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
+              <span>{likeCount}</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSave}
+              className={`flex items-center gap-2 ${isSaved ? "bg-blue-50 text-blue-600 border-blue-200" : ""}`}
+            >
+              <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
+              <span>{saveCount}</span>
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleShare()} className="flex items-center gap-2">
+              <Share2 className="w-4 h-4" />
+              Share
+            </Button>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button
-            variant={isLiked ? "default" : "outline"}
-            size="sm"
-            onClick={handleLike}
-            className="flex items-center gap-2"
-          >
-            <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
-            Like ({likeCount})
-          </Button>
-          <Button
-            variant={isSaved ? "default" : "outline"}
-            size="sm"
-            onClick={handleSave}
-            className="flex items-center gap-2"
-          >
-            <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
-            Save ({saveCount})
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleShare} className="flex items-center gap-2 bg-transparent">
-            {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-            Share
-          </Button>
+        {/* Featured Image */}
+        <div className="relative h-64 md:h-96 rounded-xl overflow-hidden mb-8">
+          <Image
+            src={article.thumbnail || "/placeholder.svg?height=400&width=800"}
+            alt={article.title}
+            fill
+            className="object-cover"
+            priority
+          />
         </div>
-
-        <Separator />
-      </motion.header>
-
-      {/* Featured Image */}
-      {article.thumbnail && (
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="mb-12"
-        >
-          <div className="relative h-96 md:h-[500px] rounded-xl overflow-hidden shadow-lg">
-            <Image
-              src={article.thumbnail || "/placeholder.svg"}
-              alt={article.title}
-              fill
-              className="object-cover"
-              priority
-              onError={(e) => {
-                e.currentTarget.src = "/placeholder.svg?height=500&width=800"
-              }}
-            />
-          </div>
-        </motion.div>
-      )}
+      </header>
 
       {/* Article Content */}
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.4 }}
-        className="prose prose-lg max-w-none mb-12"
-        dangerouslySetInnerHTML={{ __html: article.content }}
-      />
+      <Card className="mb-8">
+        <CardContent className="p-8">
+          <div
+            className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-p:leading-relaxed prose-a:text-blue-600 prose-strong:text-gray-900"
+            dangerouslySetInnerHTML={{ __html: article.content }}
+          />
+        </CardContent>
+      </Card>
 
       {/* Tags */}
       {article.tags && article.tags.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.6 }}
-          className="mb-12"
-        >
-          <Separator className="mb-6" />
-          <div className="flex items-center gap-2 mb-4">
-            <Tag className="w-4 h-4 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Tags</span>
-          </div>
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold mb-4">Tags</h3>
           <div className="flex flex-wrap gap-2">
             {article.tags.map((tag) => (
               <Badge key={tag} variant="outline" className="text-sm">
@@ -311,33 +282,51 @@ export function ArticleContent({ article }: ArticleContentProps) {
               </Badge>
             ))}
           </div>
-        </motion.div>
+        </div>
       )}
 
-      {/* Article Footer */}
-      <motion.footer
-        initial={{ opacity: 0, y: 30 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.8 }}
-        className="border-t pt-8"
-      >
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Button variant={isLiked ? "default" : "outline"} onClick={handleLike} className="flex items-center gap-2">
-              <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
-              {isLiked ? "Liked" : "Like"} ({likeCount})
-            </Button>
-            <Button variant={isSaved ? "default" : "outline"} onClick={handleSave} className="flex items-center gap-2">
-              <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
-              {isSaved ? "Saved" : "Save"} ({saveCount})
-            </Button>
-          </div>
-          <Button variant="outline" onClick={handleShare} className="flex items-center gap-2 bg-transparent">
-            {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-            Share Article
+      <Separator className="mb-8" />
+
+      {/* Social Sharing */}
+      <div className="flex items-center justify-between flex-wrap gap-4 mb-8">
+        <div>
+          <h3 className="text-lg font-semibold mb-2">Share this article</h3>
+          <p className="text-gray-600">Help others discover this content</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleShare("twitter")}
+            className="flex items-center gap-2"
+          >
+            <Twitter className="w-4 h-4" />
+            Twitter
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleShare("facebook")}
+            className="flex items-center gap-2"
+          >
+            <Facebook className="w-4 h-4" />
+            Facebook
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleShare("linkedin")}
+            className="flex items-center gap-2"
+          >
+            <Linkedin className="w-4 h-4" />
+            LinkedIn
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleShare("copy")} className="flex items-center gap-2">
+            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copied ? "Copied!" : "Copy Link"}
           </Button>
         </div>
-      </motion.footer>
-    </article>
+      </div>
+    </motion.article>
   )
 }
