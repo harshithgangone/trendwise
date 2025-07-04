@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Folder, FileText, TrendingUp, Search } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Folder, FileText, TrendingUp, Search, RefreshCw } from "lucide-react"
 
 interface Category {
   name: string
@@ -17,6 +18,7 @@ interface Category {
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -27,6 +29,8 @@ export default function CategoriesPage() {
   const fetchCategories = async () => {
     try {
       console.log("📂 [CATEGORIES PAGE] Fetching categories...")
+      setLoading(true)
+      setError(null)
 
       const response = await fetch("/api/articles/categories", {
         method: "GET",
@@ -40,7 +44,13 @@ export default function CategoriesPage() {
       if (response.ok) {
         const data = await response.json()
         console.log(`✅ [CATEGORIES PAGE] Fetched ${data.categories?.length || 0} categories`)
-        setCategories(data.categories || [])
+
+        // Filter out any invalid categories
+        const validCategories = (data.categories || []).filter(
+          (category: any) => category && category.name && typeof category.name === "string",
+        )
+
+        setCategories(validCategories)
       } else {
         console.error(`❌ [CATEGORIES PAGE] Failed to fetch: ${response.status}`)
         setError("Failed to load categories")
@@ -52,6 +62,17 @@ export default function CategoriesPage() {
       setLoading(false)
     }
   }
+
+  // Safe filtering with null checks
+  const filteredCategories = Array.isArray(categories)
+    ? categories.filter((category) => {
+        // Add null/undefined checks
+        if (!category || !category.name || typeof category.name !== "string") {
+          return false
+        }
+        return category.name.toLowerCase().includes(searchQuery.toLowerCase())
+      })
+    : []
 
   if (loading) {
     return (
@@ -83,14 +104,17 @@ export default function CategoriesPage() {
             <Folder className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Unable to Load Categories</h2>
             <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={fetchCategories}>Try Again</Button>
+            <Button onClick={fetchCategories}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Try Again
+            </Button>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  const totalArticles = categories.reduce((sum, category) => sum + category.count, 0)
+  const totalArticles = categories.reduce((sum, category) => sum + (category.count || 0), 0)
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -113,6 +137,28 @@ export default function CategoriesPage() {
         </p>
       </motion.div>
 
+      {/* Search Bar */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+        className="mb-8"
+      >
+        <Card>
+          <CardContent className="p-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search categories..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
       {/* Stats */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -123,8 +169,8 @@ export default function CategoriesPage() {
         <Card>
           <CardContent className="p-4 text-center">
             <Folder className="w-6 h-6 text-blue-500 mx-auto mb-2" />
-            <div className="text-2xl font-bold">{categories.length}</div>
-            <div className="text-sm text-gray-600">Categories</div>
+            <div className="text-2xl font-bold">{filteredCategories.length}</div>
+            <div className="text-sm text-gray-600">{searchQuery ? "Filtered Categories" : "Total Categories"}</div>
           </CardContent>
         </Card>
         <Card>
@@ -146,21 +192,21 @@ export default function CategoriesPage() {
       </motion.div>
 
       {/* Categories Grid */}
-      {categories.length > 0 ? (
+      {filteredCategories.length > 0 ? (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
         >
-          {categories.map((category, index) => (
+          {filteredCategories.map((category, index) => (
             <motion.div
-              key={category.slug}
+              key={category.slug || category.name}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.1 * index }}
             >
-              <Link href={`/category/${category.slug}`}>
+              <Link href={`/category/${category.slug || encodeURIComponent(category.name.toLowerCase())}`}>
                 <Card className="hover:shadow-lg transition-all duration-300 hover:scale-105 cursor-pointer group">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between mb-4">
@@ -168,14 +214,14 @@ export default function CategoriesPage() {
                         <Folder className="w-6 h-6 text-blue-500" />
                       </div>
                       <Badge variant="secondary" className="text-sm">
-                        {category.count} articles
+                        {category.count || 0} articles
                       </Badge>
                     </div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
                       {category.name}
                     </h3>
                     <p className="text-sm text-gray-600">
-                      Discover {category.count} articles in {category.name.toLowerCase()}
+                      Discover {category.count || 0} articles in {category.name.toLowerCase()}
                     </p>
                   </CardContent>
                 </Card>
@@ -187,8 +233,19 @@ export default function CategoriesPage() {
         <Card className="max-w-md mx-auto">
           <CardContent className="p-6 text-center">
             <Folder className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">No Categories Found</h2>
-            <p className="text-gray-600">Categories will appear here once articles are published!</p>
+            <h2 className="text-xl font-semibold mb-2">
+              {searchQuery ? "No Categories Found" : "No Categories Available"}
+            </h2>
+            <p className="text-gray-600">
+              {searchQuery
+                ? `No categories match "${searchQuery}". Try a different search term.`
+                : "Categories will appear here once articles are published!"}
+            </p>
+            {searchQuery && (
+              <Button onClick={() => setSearchQuery("")} variant="outline" className="mt-4">
+                Clear Search
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

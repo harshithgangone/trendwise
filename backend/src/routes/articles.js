@@ -7,86 +7,64 @@ async function articleRoutes(fastify, options) {
   // Get all articles with pagination
   fastify.get("/api/articles", async (request, reply) => {
     try {
-      console.log("📖 [ARTICLES] GET /api/articles - Fetching articles...")
-
-      const page = Number.parseInt(request.query.page) || 1
-      const limit = Number.parseInt(request.query.limit) || 10
-      const category = request.query.category
-      const featured = request.query.featured === "true"
+      const { page = 1, limit = 12, category, search, featured } = request.query
       const skip = (page - 1) * limit
 
-      console.log(
-        `📊 [ARTICLES] Query params - page: ${page}, limit: ${limit}, category: ${category}, featured: ${featured}`,
-      )
+      console.log(`📖 [BACKEND] GET /api/articles - Page: ${page}, Limit: ${limit}, Category: ${category || "all"}`)
 
-      // Build query
       const query = {}
+
+      // Add category filter
       if (category && category !== "all") {
-        query.category = new RegExp(category, "i")
+        query.tags = { $in: [new RegExp(category, "i")] }
       }
-      if (featured) {
+
+      // Add search filter
+      if (search) {
+        query.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { excerpt: { $regex: search, $options: "i" } },
+          { tags: { $in: [new RegExp(search, "i")] } },
+        ]
+      }
+
+      // Add featured filter
+      if (featured === "true") {
         query.featured = true
       }
 
-      console.log("🔍 [ARTICLES] MongoDB query:", JSON.stringify(query))
+      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number.parseInt(limit)).lean()
 
-      // Get articles with pagination
-      const articles = await Article.find(query).sort({ createdAt: -1, featured: -1 }).skip(skip).limit(limit).lean()
-
-      // Get total count for pagination
       const total = await Article.countDocuments(query)
-      const pages = Math.ceil(total / limit)
+      const totalPages = Math.ceil(total / limit)
+      const hasNext = page < totalPages
+      const hasPrev = page > 1
 
-      console.log(`✅ [ARTICLES] Found ${articles.length} articles (${total} total)`)
+      console.log(`✅ [BACKEND] Found ${articles.length} articles (${total} total)`)
 
-      // Transform articles for frontend
-      const transformedArticles = articles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt || article.content?.substring(0, 200) + "..." || "No excerpt available",
-        thumbnail: article.thumbnail || article.featuredImage || "/placeholder.svg?height=224&width=400",
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "General",
-        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
-        views: article.views || 0, // Real views, no dummy data
-        featured: article.featured || false,
-        likes: article.likes || 0, // Real likes, no dummy data
-        saves: article.saves || 0, // Real saves, no dummy data
-        author: article.author || "TrendWise AI",
-      }))
-
-      const response = {
+      reply.send({
         success: true,
-        articles: transformedArticles,
+        articles: articles.map((article) => ({
+          ...article,
+          _id: article._id.toString(),
+          views: article.views || 0,
+          likes: article.likes || 0,
+          saves: article.saves || 0,
+        })),
         pagination: {
-          page,
-          limit,
-          total,
-          pages,
-          hasNext: page < pages,
-          hasPrev: page > 1,
+          currentPage: Number.parseInt(page),
+          totalPages,
+          totalArticles: total,
+          hasNext,
+          hasPrev,
+          limit: Number.parseInt(limit),
         },
-      }
-
-      console.log("📤 [ARTICLES] Sending response with", transformedArticles.length, "articles")
-      return response
+      })
     } catch (error) {
-      console.error("❌ [ARTICLES] Error fetching articles:", error)
-      return reply.status(500).send({
+      console.error("❌ [BACKEND] Error fetching articles:", error)
+      reply.status(500).send({
         success: false,
         error: "Failed to fetch articles",
-        message: error.message,
-        articles: [],
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
       })
     }
   })
@@ -95,103 +73,212 @@ async function articleRoutes(fastify, options) {
   fastify.get("/api/articles/slug/:slug", async (request, reply) => {
     try {
       const { slug } = request.params
-      console.log(`📖 [ARTICLES] ==========================================`)
-      console.log(`📖 [ARTICLES] GET /api/articles/slug/${slug}`)
-      console.log(`📖 [ARTICLES] Request timestamp: ${new Date().toISOString()}`)
+      console.log(`📖 [BACKEND] GET /api/articles/slug/${slug}`)
 
-      // Find article by slug
-      console.log(`🔍 [ARTICLES] Searching for article with slug: ${slug}`)
       const article = await Article.findOne({ slug }).lean()
 
       if (!article) {
-        console.log(`❌ [ARTICLES] Article not found with slug: ${slug}`)
-        console.log(`🔍 [ARTICLES] Checking all available slugs...`)
-
-        // Debug: Show all available slugs
-        const allArticles = await Article.find({}, { slug: 1, title: 1 }).lean()
-        console.log(
-          `📋 [ARTICLES] Available articles:`,
-          allArticles.map((a) => ({ slug: a.slug, title: a.title })),
-        )
-
+        console.log(`❌ [BACKEND] Article not found: ${slug}`)
         return reply.status(404).send({
           success: false,
           error: "Article not found",
-          requestedSlug: slug,
-          availableSlugs: allArticles.map((a) => a.slug),
         })
       }
 
-      console.log(`✅ [ARTICLES] Article found:`, {
-        _id: article._id,
-        title: article.title,
-        slug: article.slug,
-        hasContent: !!article.content,
-        contentLength: article.content?.length,
-        category: article.category,
-        author: article.author,
-        views: article.views || 0,
-        likes: article.likes || 0,
-        saves: article.saves || 0,
-      })
+      console.log(`✅ [BACKEND] Found article: ${article.title}`)
 
-      const transformedArticle = {
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        content: article.content || `<h2>Content Loading</h2><p>This article content is being processed.</p>`,
-        excerpt: article.excerpt || article.content?.substring(0, 300) + "..." || "No excerpt available",
-        thumbnail: article.thumbnail || article.featuredImage || "/placeholder.svg?height=400&width=600",
-        createdAt: article.createdAt,
-        updatedAt: article.updatedAt,
-        tags: article.tags || [],
-        category: article.category || "General",
-        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
-        views: article.views || 0, // Real views
-        featured: article.featured || false,
-        likes: article.likes || 0, // Real likes
-        saves: article.saves || 0, // Real saves
-        author: article.author || "TrendWise AI",
-        trending: article.trending || false,
-      }
-
-      console.log(`✅ [ARTICLES] Transformed article data:`, {
-        _id: transformedArticle._id,
-        title: transformedArticle.title,
-        slug: transformedArticle.slug,
-        hasContent: !!transformedArticle.content,
-        views: transformedArticle.views,
-        likes: transformedArticle.likes,
-        saves: transformedArticle.saves,
-      })
-
-      console.log(`📤 [ARTICLES] Sending successful response for: ${article.title}`)
-      console.log(`📖 [ARTICLES] ==========================================`)
-
-      return {
+      reply.send({
         success: true,
-        article: transformedArticle,
-      }
+        article: {
+          ...article,
+          _id: article._id.toString(),
+          views: article.views || 0,
+          likes: article.likes || 0,
+          saves: article.saves || 0,
+        },
+      })
     } catch (error) {
-      console.error("❌ [ARTICLES] Error fetching article:", error)
-      console.error("❌ [ARTICLES] Error stack:", error.stack)
-      console.log(`📖 [ARTICLES] ==========================================`)
-
-      return reply.status(500).send({
+      console.error("❌ [BACKEND] Error fetching article:", error)
+      reply.status(500).send({
         success: false,
         error: "Failed to fetch article",
-        message: error.message,
-        slug: request.params.slug,
+      })
+    }
+  })
+
+  // Get article by ID
+  fastify.get("/api/articles/by-id/:id", async (request, reply) => {
+    try {
+      const { id } = request.params
+      console.log(`📖 [BACKEND] GET /api/articles/by-id/${id}`)
+
+      const article = await Article.findById(id).lean()
+
+      if (!article) {
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      reply.send({
+        success: true,
+        article: {
+          ...article,
+          _id: article._id.toString(),
+          views: article.views || 0,
+          likes: article.likes || 0,
+          saves: article.saves || 0,
+        },
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND] Error fetching article by ID:", error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch article",
+      })
+    }
+  })
+
+  // Get trending articles - REAL DATA
+  fastify.get("/api/articles/trending", async (request, reply) => {
+    try {
+      const { limit = 10 } = request.query
+      console.log(`🔥 [BACKEND] GET /api/articles/trending - Limit: ${limit}`)
+
+      const articles = await Article.find({})
+        .sort({
+          views: -1,
+          likes: -1,
+          createdAt: -1,
+        })
+        .limit(Number.parseInt(limit))
+        .lean()
+
+      console.log(`✅ [BACKEND] Found ${articles.length} trending articles`)
+
+      reply.send({
+        success: true,
+        articles: articles.map((article) => ({
+          ...article,
+          _id: article._id.toString(),
+          views: article.views || 0,
+          likes: article.likes || 0,
+          saves: article.saves || 0,
+        })),
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND] Error fetching trending articles:", error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch trending articles",
+      })
+    }
+  })
+
+  // Get categories with real counts
+  fastify.get("/api/articles/categories", async (request, reply) => {
+    try {
+      console.log("📂 [BACKEND] GET /api/articles/categories")
+
+      const categories = await Article.aggregate([
+        { $unwind: "$tags" },
+        {
+          $group: {
+            _id: "$tags",
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { count: -1 } },
+        {
+          $project: {
+            name: "$_id",
+            count: 1,
+            slug: {
+              $toLower: {
+                $replaceAll: {
+                  input: "$_id",
+                  find: " ",
+                  replacement: "-",
+                },
+              },
+            },
+            _id: 0,
+          },
+        },
+      ])
+
+      console.log(`✅ [BACKEND] Found ${categories.length} categories`)
+
+      reply.send({
+        success: true,
+        categories: categories.filter((cat) => cat.name && typeof cat.name === "string"),
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND] Error fetching categories:", error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch categories",
+      })
+    }
+  })
+
+  // Get articles by category - REAL DATA
+  fastify.get("/api/articles/category/:category", async (request, reply) => {
+    try {
+      const { category } = request.params
+      const { page = 1, limit = 12 } = request.query
+      const skip = (page - 1) * limit
+
+      console.log(`📂 [BACKEND] GET /api/articles/category/${category} - Page: ${page}`)
+
+      const query = {
+        tags: { $in: [new RegExp(category, "i")] },
+      }
+
+      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number.parseInt(limit)).lean()
+
+      const total = await Article.countDocuments(query)
+      const totalPages = Math.ceil(total / limit)
+
+      console.log(`✅ [BACKEND] Found ${articles.length} articles in category "${category}"`)
+
+      reply.send({
+        success: true,
+        articles: articles.map((article) => ({
+          ...article,
+          _id: article._id.toString(),
+          views: article.views || 0,
+          likes: article.likes || 0,
+          saves: article.saves || 0,
+        })),
+        pagination: {
+          currentPage: Number.parseInt(page),
+          totalPages,
+          totalArticles: total,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+          limit: Number.parseInt(limit),
+        },
+      })
+    } catch (error) {
+      console.error("❌ [BACKEND] Error fetching articles by category:", error)
+      reply.status(500).send({
+        success: false,
+        error: "Failed to fetch articles by category",
       })
     }
   })
 
   // Track article view - REAL DATA
-  fastify.post("/api/articles/:id/view", async (request, reply) => {
+  fastify.post("/api/articles/view/:id", async (request, reply) => {
     try {
       const { id } = request.params
-      console.log(`👁️ [ARTICLES] Tracking REAL view for article: ${id}`)
+      const { userEmail } = request.body
 
+      console.log(`👁️ [BACKEND] POST /api/articles/view/${id} - User: ${userEmail || "anonymous"}`)
+
+      // Update article view count
       const article = await Article.findByIdAndUpdate(id, { $inc: { views: 1 } }, { new: true })
 
       if (!article) {
@@ -201,16 +288,27 @@ async function articleRoutes(fastify, options) {
         })
       }
 
-      console.log(`✅ [ARTICLES] REAL view tracked. New count: ${article.views}`)
+      // Track user view if authenticated
+      if (userEmail) {
+        await UserPreference.findOneAndUpdate(
+          { userEmail },
+          {
+            $addToSet: { viewedArticles: id },
+            $set: { lastActive: new Date() },
+          },
+          { upsert: true },
+        )
+      }
 
-      return {
+      console.log(`✅ [BACKEND] Article view tracked. Total views: ${article.views}`)
+
+      reply.send({
         success: true,
         views: article.views,
-        articleId: id,
-      }
+      })
     } catch (error) {
-      console.error("❌ [ARTICLES] Error tracking view:", error)
-      return reply.status(500).send({
+      console.error("❌ [BACKEND] Error tracking view:", error)
+      reply.status(500).send({
         success: false,
         error: "Failed to track view",
       })
@@ -218,129 +316,119 @@ async function articleRoutes(fastify, options) {
   })
 
   // Like/unlike article - REAL DATA WITH USER PREFERENCES
-  fastify.post("/api/articles/:id/like", async (request, reply) => {
+  fastify.post("/api/articles/like/:id", async (request, reply) => {
     try {
       const { id } = request.params
-      const { userId, userEmail } = request.body
+      const { userEmail, action } = request.body
 
-      if (!userId) {
-        return reply.status(400).send({
+      if (!userEmail) {
+        return reply.status(401).send({
           success: false,
-          error: "User ID required",
+          error: "Authentication required",
         })
       }
 
-      console.log(`❤️ [ARTICLES] Processing REAL like for article: ${id} by user: ${userId}`)
+      console.log(`❤️ [BACKEND] POST /api/articles/like/${id} - User: ${userEmail}, Action: ${action}`)
 
-      // Find or create user preferences
-      let userPrefs = await UserPreference.findOne({ userId })
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      let userPrefs = await UserPreference.findOne({ userEmail })
       if (!userPrefs) {
-        userPrefs = new UserPreference({
-          userId,
-          email: userEmail,
-          likedArticles: [],
-          savedArticles: [],
-          recentlyViewed: [],
-        })
-        console.log(`👤 [ARTICLES] Created new user preferences for: ${userId}`)
+        userPrefs = new UserPreference({ userEmail })
       }
 
-      // Check if article is already liked
-      const isLiked = userPrefs.likedArticles.some((item) => item.articleId.toString() === id)
+      const isLiked = userPrefs.likedArticles.includes(id)
 
-      let article
-      if (isLiked) {
-        // Unlike the article
-        userPrefs.likedArticles = userPrefs.likedArticles.filter((item) => item.articleId.toString() !== id)
-        article = await Article.findByIdAndUpdate(id, { $inc: { likes: -1 } }, { new: true })
-        console.log(`💔 [ARTICLES] Article unliked. New REAL count: ${article.likes}`)
-      } else {
+      if (action === "like" && !isLiked) {
         // Like the article
-        userPrefs.likedArticles.push({
-          articleId: id,
-          likedAt: new Date(),
-        })
-        article = await Article.findByIdAndUpdate(id, { $inc: { likes: 1 } }, { new: true })
-        console.log(`❤️ [ARTICLES] Article liked. New REAL count: ${article.likes}`)
+        article.likes = (article.likes || 0) + 1
+        userPrefs.likedArticles.push(id)
+      } else if (action === "unlike" && isLiked) {
+        // Unlike the article
+        article.likes = Math.max((article.likes || 0) - 1, 0)
+        userPrefs.likedArticles = userPrefs.likedArticles.filter((articleId) => articleId.toString() !== id)
       }
 
+      await article.save()
       await userPrefs.save()
 
-      return {
+      console.log(`✅ [BACKEND] Article ${action}d. Total likes: ${article.likes}`)
+
+      reply.send({
         success: true,
-        liked: !isLiked,
-        likes: article.likes, // Real count from database
-        articleId: id,
-      }
+        likes: article.likes,
+        isLiked: userPrefs.likedArticles.includes(id),
+      })
     } catch (error) {
-      console.error("❌ [ARTICLES] Error processing like:", error)
-      return reply.status(500).send({
+      console.error("❌ [BACKEND] Error handling like:", error)
+      reply.status(500).send({
         success: false,
-        error: "Failed to process like",
+        error: "Failed to handle like",
       })
     }
   })
 
   // Save/unsave article - REAL DATA WITH USER PREFERENCES
-  fastify.post("/api/articles/:id/save", async (request, reply) => {
+  fastify.post("/api/articles/save/:id", async (request, reply) => {
     try {
       const { id } = request.params
-      const { userId, userEmail } = request.body
+      const { userEmail, action } = request.body
 
-      if (!userId) {
-        return reply.status(400).send({
+      if (!userEmail) {
+        return reply.status(401).send({
           success: false,
-          error: "User ID required",
+          error: "Authentication required",
         })
       }
 
-      console.log(`🔖 [ARTICLES] Processing REAL save for article: ${id} by user: ${userId}`)
+      console.log(`💾 [BACKEND] POST /api/articles/save/${id} - User: ${userEmail}, Action: ${action}`)
 
-      // Find or create user preferences
-      let userPrefs = await UserPreference.findOne({ userId })
+      const article = await Article.findById(id)
+      if (!article) {
+        return reply.status(404).send({
+          success: false,
+          error: "Article not found",
+        })
+      }
+
+      let userPrefs = await UserPreference.findOne({ userEmail })
       if (!userPrefs) {
-        userPrefs = new UserPreference({
-          userId,
-          email: userEmail,
-          likedArticles: [],
-          savedArticles: [],
-          recentlyViewed: [],
-        })
-        console.log(`👤 [ARTICLES] Created new user preferences for: ${userId}`)
+        userPrefs = new UserPreference({ userEmail })
       }
 
-      // Check if article is already saved
-      const isSaved = userPrefs.savedArticles.some((item) => item.articleId.toString() === id)
+      const isSaved = userPrefs.savedArticles.includes(id)
 
-      let article
-      if (isSaved) {
-        // Unsave the article
-        userPrefs.savedArticles = userPrefs.savedArticles.filter((item) => item.articleId.toString() !== id)
-        article = await Article.findByIdAndUpdate(id, { $inc: { saves: -1 } }, { new: true })
-        console.log(`🗑️ [ARTICLES] Article unsaved. New REAL count: ${article.saves}`)
-      } else {
+      if (action === "save" && !isSaved) {
         // Save the article
-        userPrefs.savedArticles.push({
-          articleId: id,
-          savedAt: new Date(),
-        })
-        article = await Article.findByIdAndUpdate(id, { $inc: { saves: 1 } }, { new: true })
-        console.log(`🔖 [ARTICLES] Article saved. New REAL count: ${article.saves}`)
+        article.saves = (article.saves || 0) + 1
+        userPrefs.savedArticles.push(id)
+      } else if (action === "unsave" && isSaved) {
+        // Unsave the article
+        article.saves = Math.max((article.saves || 0) - 1, 0)
+        userPrefs.savedArticles = userPrefs.savedArticles.filter((articleId) => articleId.toString() !== id)
       }
 
+      await article.save()
       await userPrefs.save()
 
-      return {
+      console.log(`✅ [BACKEND] Article ${action}d. Total saves: ${article.saves}`)
+
+      reply.send({
         success: true,
-        saved: !isSaved,
-        saves: article.saves, // Real count from database
-        articleId: id,
-      }
+        saves: article.saves,
+        isSaved: userPrefs.savedArticles.includes(id),
+      })
     } catch (error) {
-      console.error("❌ [ARTICLES] Error processing save:", error)
-      return reply.status(500).send({
+      console.error("❌ [BACKEND] Error handling save:", error)
+      reply.status(500).send({
         success: false,
-        error: "Failed to process save",
+        error: "Failed to handle save",
       })
     }
   })
@@ -405,155 +493,6 @@ async function articleRoutes(fastify, options) {
         success: false,
         error: "Failed to create article",
         message: error.message,
-      })
-    }
-  })
-
-  // Get trending articles - REAL DATA
-  fastify.get("/api/articles/trending", async (request, reply) => {
-    try {
-      console.log("🔥 [ARTICLES] GET /api/articles/trending")
-
-      const articles = await Article.find({}).sort({ views: -1, likes: -1, createdAt: -1 }).limit(10).lean()
-
-      const transformedArticles = articles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
-        thumbnail: article.thumbnail || article.featuredImage,
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "General",
-        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
-        views: article.views || 0, // Real views
-        featured: article.featured || false,
-        likes: article.likes || 0, // Real likes
-        saves: article.saves || 0, // Real saves
-        author: article.author || "TrendWise AI",
-        trending: true,
-      }))
-
-      console.log(`✅ [ARTICLES] Found ${transformedArticles.length} trending articles with REAL data`)
-      return {
-        success: true,
-        articles: transformedArticles,
-      }
-    } catch (error) {
-      console.error("❌ [ARTICLES] Error fetching trending articles:", error)
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch trending articles",
-        message: error.message,
-        articles: [],
-      })
-    }
-  })
-
-  // Get articles by category - REAL DATA
-  fastify.get("/api/articles/category/:category", async (request, reply) => {
-    try {
-      const { category } = request.params
-      const page = Number.parseInt(request.query.page) || 1
-      const limit = Number.parseInt(request.query.limit) || 10
-      const skip = (page - 1) * limit
-
-      console.log(`📂 [ARTICLES] GET /api/articles/category/${category}`)
-
-      const query = { category: new RegExp(category, "i") }
-
-      const articles = await Article.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean()
-
-      const total = await Article.countDocuments(query)
-      const pages = Math.ceil(total / limit)
-
-      const transformedArticles = articles.map((article) => ({
-        _id: article._id.toString(),
-        title: article.title,
-        slug: article.slug,
-        excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
-        thumbnail: article.thumbnail || article.featuredImage,
-        createdAt: article.createdAt,
-        tags: article.tags || [],
-        category: article.category || "General",
-        readTime: article.readTime || Math.ceil((article.content?.length || 1000) / 200),
-        views: article.views || 0, // Real views
-        featured: article.featured || false,
-        likes: article.likes || 0, // Real likes
-        saves: article.saves || 0, // Real saves
-        author: article.author || "TrendWise AI",
-      }))
-
-      console.log(`✅ [ARTICLES] Found ${transformedArticles.length} articles in category ${category} with REAL data`)
-      return {
-        success: true,
-        articles: transformedArticles,
-        pagination: {
-          page,
-          limit,
-          total,
-          pages,
-          hasNext: page < pages,
-          hasPrev: page > 1,
-        },
-      }
-    } catch (error) {
-      console.error("❌ [ARTICLES] Error fetching articles by category:", error)
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch articles by category",
-        message: error.message,
-        articles: [],
-      })
-    }
-  })
-
-  // Get categories with real counts
-  fastify.get("/api/articles/categories", async (request, reply) => {
-    try {
-      console.log(`📂 [ARTICLES] GET /api/articles/categories`)
-
-      const categories = await Article.aggregate([
-        {
-          $group: {
-            _id: "$category",
-            count: { $sum: 1 },
-          },
-        },
-        {
-          $project: {
-            name: "$_id",
-            count: 1,
-            slug: {
-              $toLower: {
-                $replaceAll: {
-                  input: "$_id",
-                  find: " ",
-                  replacement: "-",
-                },
-              },
-            },
-            _id: 0,
-          },
-        },
-        {
-          $sort: { count: -1 },
-        },
-      ])
-
-      console.log(`✅ [ARTICLES] Found ${categories.length} categories with REAL counts`)
-
-      return {
-        success: true,
-        categories,
-      }
-    } catch (error) {
-      console.error("❌ [ARTICLES] Error fetching categories:", error)
-      return reply.status(500).send({
-        success: false,
-        error: "Failed to fetch categories",
-        message: error.message,
-        categories: [],
       })
     }
   })

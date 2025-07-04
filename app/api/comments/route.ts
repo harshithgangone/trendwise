@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const articleId = searchParams.get("articleId")
 
     if (!articleId || articleId === "undefined") {
-      console.log("⚠️ [FRONTEND API] No valid articleId provided for comments")
+      console.log("⚠️ [COMMENTS API] No valid articleId provided")
       return NextResponse.json({
         success: true,
         comments: [],
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`💬 [FRONTEND API] Fetching comments for article: ${articleId}`)
+    console.log(`💬 [COMMENTS API] Fetching comments for article: ${articleId}`)
 
     try {
       const controller = new AbortController()
@@ -40,15 +40,18 @@ export async function GET(request: NextRequest) {
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`✅ [FRONTEND API] Successfully fetched ${data.comments?.length || 0} comments`)
-        return NextResponse.json(data)
+        console.log(`✅ [COMMENTS API] Successfully fetched ${data.comments?.length || 0} comments`)
+        return NextResponse.json({
+          success: true,
+          comments: data.comments || [],
+          total: data.total || 0,
+        })
       } else {
-        console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status} for comments`)
+        console.log(`⚠️ [COMMENTS API] Backend responded with ${response.status}`)
         throw new Error(`Backend error: ${response.status}`)
       }
     } catch (backendError) {
-      console.log("⚠️ [FRONTEND API] Backend unavailable for comments, returning empty array")
-
+      console.log("⚠️ [COMMENTS API] Backend unavailable, returning empty comments")
       return NextResponse.json({
         success: true,
         comments: [],
@@ -56,8 +59,7 @@ export async function GET(request: NextRequest) {
       })
     }
   } catch (error) {
-    console.error("❌ [FRONTEND API] Error fetching comments:", error)
-
+    console.error("❌ [COMMENTS API] Error fetching comments:", error)
     return NextResponse.json({
       success: true,
       comments: [],
@@ -68,23 +70,72 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("💬 [COMMENTS API] POST request received")
+
     const session = await getServerSession(authOptions)
 
     if (!session || !session.user || !session.user.email) {
-      return NextResponse.json({ success: false, error: "Authentication required" }, { status: 401 })
+      console.log("❌ [COMMENTS API] No valid session found")
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required. Please sign in to post comments.",
+        },
+        { status: 401 },
+      )
     }
 
-    const { articleId, content } = await request.json()
+    const body = await request.json()
+    const { articleId, content } = body
+
+    console.log(`💬 [COMMENTS API] Posting comment for article: ${articleId}`)
 
     if (!articleId || !content || articleId === "undefined") {
-      return NextResponse.json({ success: false, error: "Article ID and content are required" }, { status: 400 })
+      console.log("❌ [COMMENTS API] Missing required fields")
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Article ID and content are required",
+        },
+        { status: 400 },
+      )
     }
 
-    console.log(`💬 [FRONTEND API] Posting comment for article: ${articleId}`)
+    if (content.trim().length < 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Comment cannot be empty",
+        },
+        { status: 400 },
+      )
+    }
+
+    if (content.length > 1000) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Comment is too long (max 1000 characters)",
+        },
+        { status: 400 },
+      )
+    }
 
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
+
+      const commentData = {
+        articleId,
+        content: content.trim(),
+        author: {
+          name: session.user.name || "Anonymous User",
+          email: session.user.email,
+          image: session.user.image || "/placeholder.svg?height=40&width=40",
+        },
+      }
+
+      console.log("💬 [COMMENTS API] Sending to backend:", commentData)
 
       const response = await fetch(`${BACKEND_URL}/api/comments`, {
         method: "POST",
@@ -92,15 +143,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "User-Agent": "TrendWise-Frontend/1.0",
         },
-        body: JSON.stringify({
-          articleId,
-          content,
-          author: {
-            name: session.user.name || "Anonymous",
-            email: session.user.email,
-            image: session.user.image || "/placeholder.svg?height=40&width=40",
-          },
-        }),
+        body: JSON.stringify(commentData),
         signal: controller.signal,
       })
 
@@ -108,15 +151,36 @@ export async function POST(request: NextRequest) {
 
       if (response.ok) {
         const data = await response.json()
-        console.log("✅ [FRONTEND API] Successfully posted comment")
-        return NextResponse.json(data)
+        console.log("✅ [COMMENTS API] Successfully posted comment")
+        return NextResponse.json({
+          success: true,
+          comment: data.comment,
+          message: "Comment posted successfully!",
+        })
       } else {
-        const errorData = await response.json()
-        console.log(`⚠️ [FRONTEND API] Backend error posting comment: ${response.status}`)
-        return NextResponse.json(errorData, { status: response.status })
+        const errorText = await response.text()
+        console.log(`⚠️ [COMMENTS API] Backend error: ${response.status} - ${errorText}`)
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Failed to post comment (${response.status})`,
+          },
+          { status: response.status },
+        )
       }
-    } catch (backendError) {
-      console.log("⚠️ [FRONTEND API] Backend unavailable for posting comment")
+    } catch (backendError: any) {
+      console.log("⚠️ [COMMENTS API] Backend unavailable:", backendError.message)
+
+      if (backendError.name === "AbortError") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Request timed out. Please try again.",
+          },
+          { status: 408 },
+        )
+      }
 
       return NextResponse.json(
         {
@@ -126,13 +190,13 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       )
     }
-  } catch (error) {
-    console.error("❌ [FRONTEND API] Error posting comment:", error)
+  } catch (error: any) {
+    console.error("❌ [COMMENTS API] Unexpected error:", error)
 
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to post comment",
+        error: "An unexpected error occurred. Please try again.",
       },
       { status: 500 },
     )
