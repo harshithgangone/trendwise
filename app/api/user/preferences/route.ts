@@ -22,13 +22,14 @@ export async function GET(request: NextRequest) {
 
     // Try to fetch user preferences from backend
     try {
-      const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+
       const response = await fetch(`${BACKEND_URL}/api/user/preferences/${session.user.id}`, {
-        method: "GET",
-        headers: {
+          method: "GET",
+          headers: {
           "Content-Type": "application/json",
-        },
-      })
+  },
+})
 
       if (response.ok) {
         const data = await response.json()
