@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   ArrowLeft,
+  ExternalLink,
 } from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
@@ -59,47 +60,47 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const [saveCount, setSaveCount] = useState(article.saves || 0)
   const [viewCount, setViewCount] = useState(article.views || 0)
   const [copied, setCopied] = useState(false)
+  const [viewTracked, setViewTracked] = useState(false)
 
-  console.log(`🎨 [ARTICLE CONTENT] ==========================================`)
   console.log(`🎨 [ARTICLE CONTENT] Rendering article:`, {
     _id: article._id,
     title: article.title,
     slug: article.slug,
-    hasContent: !!article.content,
-    contentLength: article.content?.length,
-    author: article.author,
-    category: article.category,
+    initialViews: article.views,
+    initialLikes: article.likes,
+    initialSaves: article.saves,
   })
 
-  // Track view on component mount
+  // Track view only once when component mounts
   useEffect(() => {
-    const trackView = async () => {
-      try {
-        console.log(`👁️ [VIEW TRACKING] Tracking view for article: ${article._id}`)
+    if (!viewTracked) {
+      const trackView = async () => {
+        try {
+          console.log(`👁️ [VIEW TRACKING] Tracking real view for article: ${article._id}`)
 
-        const response = await fetch(`/api/articles/view/${article._id}`, {
-          method: "POST",
-        })
+          const response = await fetch(`/api/articles/view/${article._id}`, {
+            method: "POST",
+          })
 
-        console.log(`👁️ [VIEW TRACKING] Response status: ${response.status}`)
-
-        if (response.ok) {
-          const data = await response.json()
-          console.log(`👁️ [VIEW TRACKING] View tracked successfully:`, data)
-          setViewCount(data.views || viewCount + 1)
-        } else {
-          console.log(`👁️ [VIEW TRACKING] Failed to track view, incrementing locally`)
-          setViewCount((prev) => prev + 1)
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success) {
+              console.log(`👁️ [VIEW TRACKING] View tracked successfully:`, data)
+              setViewCount(data.views)
+            }
+          } else {
+            console.log(`👁️ [VIEW TRACKING] View tracking failed - keeping original count`)
+          }
+        } catch (error) {
+          console.error("👁️ [VIEW TRACKING] Error tracking view:", error)
+        } finally {
+          setViewTracked(true)
         }
-      } catch (error) {
-        console.error("👁️ [VIEW TRACKING] Error tracking view:", error)
-        // Optimistically increment view count
-        setViewCount((prev) => prev + 1)
       }
-    }
 
-    trackView()
-  }, [article._id, viewCount])
+      trackView()
+    }
+  }, [article._id, viewTracked])
 
   const handleLike = async () => {
     console.log(`❤️ [LIKE] Attempting to like article: ${article._id}`)
@@ -123,12 +124,19 @@ export function ArticleContent({ article }: ArticleContentProps) {
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`❤️ [LIKE] Like response:`, data)
+        console.log(`❤️ [LIKE] Real like response:`, data)
         setIsLiked(data.liked)
         setLikeCount(data.likes)
         toast({
           title: data.liked ? "Article Liked!" : "Like Removed",
           description: data.liked ? "Added to your liked articles." : "Removed from liked articles.",
+        })
+      } else {
+        const errorData = await response.json()
+        toast({
+          title: "Error",
+          description: errorData.error || "Failed to like article. Please try again.",
+          variant: "destructive",
         })
       }
     } catch (error) {
@@ -163,12 +171,19 @@ export function ArticleContent({ article }: ArticleContentProps) {
 
       if (response.ok) {
         const data = await response.json()
-        console.log(`🔖 [SAVE] Save response:`, data)
+        console.log(`🔖 [SAVE] Real save response:`, data)
         setIsSaved(data.saved)
         setSaveCount(data.saves)
         toast({
           title: data.saved ? "Article Saved!" : "Save Removed",
           description: data.saved ? "Added to your saved articles." : "Removed from saved articles.",
+        })
+      } else {
+        const errorData = await response.json()
+        toast({
+          title: "Error",
+          description: errorData.error || "Failed to save article. Please try again.",
+          variant: "destructive",
         })
       }
     } catch (error) {
@@ -220,8 +235,11 @@ export function ArticleContent({ article }: ArticleContentProps) {
     }
   }
 
-  console.log(`🎨 [ARTICLE CONTENT] Component rendered successfully`)
-  console.log(`🎨 [ARTICLE CONTENT] ==========================================`)
+  const handleViewRealTweets = () => {
+    const searchQuery = article.title.split(" ").slice(0, 3).join(" ")
+    const twitterSearchUrl = `https://twitter.com/search?q=${encodeURIComponent(searchQuery)}&src=typed_query&f=live`
+    window.open(twitterSearchUrl, "_blank", "noopener,noreferrer")
+  }
 
   return (
     <motion.article
@@ -341,6 +359,23 @@ export function ArticleContent({ article }: ArticleContentProps) {
             className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-p:leading-relaxed prose-a:text-blue-600 prose-strong:text-gray-900"
             dangerouslySetInnerHTML={{ __html: article.content }}
           />
+        </CardContent>
+      </Card>
+
+      {/* Real Tweets Section */}
+      <Card className="mb-8 bg-blue-50 border-blue-200">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-blue-900 mb-2">See Real Discussions</h3>
+              <p className="text-blue-700">Check out what people are actually saying about this topic on Twitter</p>
+            </div>
+            <Button onClick={handleViewRealTweets} className="bg-blue-500 hover:bg-blue-600 text-white">
+              <Twitter className="w-4 h-4 mr-2" />
+              <ExternalLink className="w-4 h-4 mr-2" />
+              View Real Tweets
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

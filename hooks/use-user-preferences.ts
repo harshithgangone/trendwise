@@ -5,52 +5,77 @@ import { useSession } from "next-auth/react"
 import { useToast } from "@/hooks/use-toast"
 
 interface UserPreferences {
-  savedArticles: string[]
+  userId: string
+  email: string
   likedArticles: string[]
+  savedArticles: string[]
   recentlyViewed: string[]
-  categories: string[]
-  notifications: boolean
+  preferences: {
+    categories: string[]
+    tags: string[]
+    readingTime: string
+  }
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
+  userId: "",
+  email: "",
   savedArticles: [],
   likedArticles: [],
   recentlyViewed: [],
-  categories: [],
-  notifications: true,
+  preferences: {
+    categories: [],
+    tags: [],
+    readingTime: "",
+  },
 }
 
 export function useUserPreferences() {
   const { data: session } = useSession()
   const { toast } = useToast()
-  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES)
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Load preferences from localStorage on mount
   useEffect(() => {
-    if (session?.user?.email) {
-      try {
-        const stored = localStorage.getItem(`preferences_${session.user.email}`)
-        if (stored) {
-          const parsedPreferences = JSON.parse(stored)
-          // Ensure all arrays exist to prevent undefined errors
-          setPreferences({
-            savedArticles: parsedPreferences.savedArticles || [],
-            likedArticles: parsedPreferences.likedArticles || [],
-            recentlyViewed: parsedPreferences.recentlyViewed || [],
-            categories: parsedPreferences.categories || [],
-            notifications: parsedPreferences.notifications !== undefined ? parsedPreferences.notifications : true,
-          })
-        }
-      } catch (error) {
-        console.error("Error loading preferences:", error)
-        setPreferences(DEFAULT_PREFERENCES)
-      }
+    if (session?.user?.id) {
+      fetchUserPreferences()
     } else {
-      setPreferences(DEFAULT_PREFERENCES)
+      setLoading(false)
     }
-    setLoading(false)
-  }, [session?.user?.email])
+  }, [session])
+
+  const fetchUserPreferences = async () => {
+    try {
+      console.log(`👤 [USER PREFERENCES HOOK] Fetching preferences for user: ${session?.user?.id}`)
+
+      const response = await fetch("/api/user/preferences")
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log(`✅ [USER PREFERENCES HOOK] Fetched preferences:`, {
+          likedCount: data.preferences?.likedArticles?.length || 0,
+          savedCount: data.preferences?.savedArticles?.length || 0,
+        })
+        setPreferences(data.preferences)
+      } else {
+        console.error(`❌ [USER PREFERENCES HOOK] Failed to fetch preferences: ${response.status}`)
+        setError("Failed to load user preferences")
+      }
+    } catch (error) {
+      console.error("❌ [USER PREFERENCES HOOK] Error:", error)
+      setError("Failed to load user preferences")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshPreferences = () => {
+    if (session?.user?.id) {
+      setLoading(true)
+      fetchUserPreferences()
+    }
+  }
 
   // Save preferences to localStorage
   const savePreferences = useCallback(
@@ -85,7 +110,7 @@ export function useUserPreferences() {
       }
 
       try {
-        const currentSaved = preferences.savedArticles || []
+        const currentSaved = preferences?.savedArticles || []
         const isCurrentlySaved = currentSaved.includes(articleId)
         const newSavedArticles = isCurrentlySaved
           ? currentSaved.filter((id) => id !== articleId)
@@ -140,7 +165,7 @@ export function useUserPreferences() {
       }
 
       try {
-        const currentLiked = preferences.likedArticles || []
+        const currentLiked = preferences?.likedArticles || []
         const isCurrentlyLiked = currentLiked.includes(articleId)
         const newLikedArticles = isCurrentlyLiked
           ? currentLiked.filter((id) => id !== articleId)
@@ -188,7 +213,7 @@ export function useUserPreferences() {
       if (!session?.user || !articleId) return
 
       try {
-        const currentViewed = preferences.recentlyViewed || []
+        const currentViewed = preferences?.recentlyViewed || []
         const newRecentlyViewed = [articleId, ...currentViewed.filter((id) => id !== articleId)].slice(0, 10)
 
         const newPreferences = {
@@ -207,22 +232,24 @@ export function useUserPreferences() {
   // Check if article is saved
   const isArticleSaved = useCallback(
     (articleId: string): boolean => {
-      return (preferences.savedArticles || []).includes(articleId)
+      return (preferences?.savedArticles || []).includes(articleId)
     },
-    [preferences.savedArticles],
+    [preferences?.savedArticles],
   )
 
   // Check if article is liked
   const isArticleLiked = useCallback(
     (articleId: string): boolean => {
-      return (preferences.likedArticles || []).includes(articleId)
+      return (preferences?.likedArticles || []).includes(articleId)
     },
-    [preferences.likedArticles],
+    [preferences?.likedArticles],
   )
 
   return {
     preferences,
     loading,
+    error,
+    refreshPreferences,
     saveArticle,
     likeArticle,
     addToRecentlyViewed,

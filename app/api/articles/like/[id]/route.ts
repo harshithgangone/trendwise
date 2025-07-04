@@ -1,27 +1,66 @@
 export const dynamic = "force-dynamic"
 
 import { type NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
-    console.log(`❤️ [LIKE API] Processing like for article: ${id}`)
+    const session = await getServerSession(authOptions)
 
-    // For now, just return a mock response since we don't have user authentication set up
-    // In a real app, you'd check if user is logged in and toggle their like status
-    const mockLiked = Math.random() > 0.5
-    const mockLikes = Math.floor(Math.random() * 100) + 10
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Authentication required",
+        },
+        { status: 401 },
+      )
+    }
 
-    console.log(`❤️ [LIKE API] Mock like status: ${mockLiked}, count: ${mockLikes}`)
+    console.log(`❤️ [LIKE API] Processing real like for article: ${id} by user: ${session.user.id}`)
 
-    return NextResponse.json({
-      success: true,
-      liked: mockLiked,
-      likes: mockLikes,
-      articleId: id,
-    })
+    // Try to update like status in backend
+    try {
+      const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
+      const response = await fetch(`${BACKEND_URL}/api/articles/${id}/like`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: session.user.id,
+          userEmail: session.user.email,
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log(`✅ [LIKE API] Real like processed in backend:`, data)
+        return NextResponse.json({
+          success: true,
+          liked: data.liked,
+          likes: data.likes,
+          articleId: id,
+        })
+      } else {
+        console.log(`⚠️ [LIKE API] Backend failed`)
+      }
+    } catch (backendError) {
+      console.log(`⚠️ [LIKE API] Backend unavailable`)
+    }
+
+    // Return error if backend is unavailable
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Like service unavailable",
+      },
+      { status: 503 },
+    )
   } catch (error) {
-    console.error("❤️ [LIKE API] Error processing like:", error)
+    console.error("❌ [LIKE API] Error processing like:", error)
     return NextResponse.json(
       {
         success: false,
