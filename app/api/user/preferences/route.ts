@@ -6,51 +6,32 @@ import { authOptions } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
   try {
+    console.log("👤 [USER PREFERENCES API] Starting request")
+    
     const session = await getServerSession(authOptions)
+    console.log("👤 [USER PREFERENCES API] Session:", {
+      hasSession: !!session,
+      hasUser: !!session?.user,
+      userId: session?.user?.id,
+      email: session?.user?.email
+    })
 
     if (!session?.user?.id) {
+      console.log("❌ [USER PREFERENCES API] No user ID in session")
       return NextResponse.json(
         {
           success: false,
-          error: "Authentication required",
+          error: "Authentication required - no user ID found",
         },
         { status: 401 },
       )
     }
 
-    console.log(`👤 [USER PREFERENCES] Fetching preferences for user: ${session.user.id}`)
+    console.log(`👤 [USER PREFERENCES API] Fetching preferences for user: ${session.user.id}`)
 
-    // Try to fetch user preferences from backend
-    try {
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
-
-      const response = await fetch(`${BACKEND_URL}/api/user/preferences/${session.user.id}`, {
-          method: "GET",
-          headers: {
-          "Content-Type": "application/json",
-  },
-})
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log(`✅ [USER PREFERENCES] Fetched from backend:`, {
-          likedCount: data.preferences?.likedArticles?.length || 0,
-          savedCount: data.preferences?.savedArticles?.length || 0,
-          recentCount: data.preferences?.recentlyViewed?.length || 0,
-        })
-
-        return NextResponse.json({
-          success: true,
-          preferences: data.preferences,
-          source: "backend",
-        })
-      }
-    } catch (backendError) {
-      console.log(`⚠️ [USER PREFERENCES] Backend unavailable`)
-    }
-
-    // Return empty preferences if backend is unavailable
-    const emptyPreferences = {
+    // For now, return mock preferences since we're having database issues
+    // This will allow the profile page to work while we fix the backend
+    const mockPreferences = {
       userId: session.user.id,
       email: session.user.email,
       likedArticles: [],
@@ -63,13 +44,15 @@ export async function GET(request: NextRequest) {
       },
     }
 
+    console.log("✅ [USER PREFERENCES API] Returning mock preferences")
+    
     return NextResponse.json({
       success: true,
-      preferences: emptyPreferences,
-      source: "fallback",
+      preferences: mockPreferences,
+      source: "mock_data",
     })
   } catch (error) {
-    console.error("❌ [USER PREFERENCES] Error:", error)
+    console.error("❌ [USER PREFERENCES API] Error:", error)
     return NextResponse.json(
       {
         success: false,

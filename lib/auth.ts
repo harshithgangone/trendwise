@@ -1,15 +1,6 @@
 import type { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 
-// Import the database connection function and mongoose
-const { connectDB, mongoose } = require("@/backend/src/config/database")
-
-// Dynamically import the User model to avoid circular dependencies
-async function getUserModel() {
-  const User = require("@/backend/src/models/User")
-  return User
-}
-
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -21,67 +12,52 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account, profile }) {
       if (account?.provider === "google") {
         try {
-          // Ensure database connection
-          await connectDB()
+          console.log("🔐 [AUTH] Processing Google sign-in for:", user.email)
           
-          // Get User model after connection is established
-          const User = await getUserModel()
-
-          let existingUser = await User.findOne({ email: user.email })
-
-          if (!existingUser) {
-            existingUser = await User.create({
-              name: user.name,
-              email: user.email,
-              image: user.image,
-              provider: account.provider,
-              providerId: account.providerAccountId,
-            })
-            console.log("New user created:", existingUser.email)
-          } else {
-            // Update user details if they've changed
-            existingUser.name = user.name
-            existingUser.image = user.image
-            await existingUser.save()
-            console.log("Existing user updated:", existingUser.email)
-          }
+          // For now, we'll just allow the sign-in without database operations
+          // The user ID will be generated from the email in the session callback
           return true
         } catch (error) {
-          console.error("Error saving user to DB:", error)
+          console.error("❌ [AUTH] Error during sign-in:", error)
           return false
         }
       }
       return true
     },
     async session({ session, token }) {
-      // Add user ID from MongoDB to session
-      if (token.email) {
-        try {
-          // Ensure database connection
-          await connectDB()
-          
-          // Get User model after connection is established
-          const User = await getUserModel()
-          
-          const dbUser = await User.findOne({ email: token.email }).select("_id role")
-          if (dbUser) {
-            session.user.id = dbUser._id.toString()
-            session.user.role = dbUser.role
-          }
-        } catch (error) {
-          console.error("Error fetching user from DB for session:", error)
-        }
+      console.log("🔐 [AUTH] Building session for:", token.email)
+      
+      // Generate a consistent user ID from email
+      if (session.user && token.email) {
+        // Create a simple hash-based ID from email for consistency
+        const userId = Buffer.from(token.email).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 24)
+        
+        session.user.id = userId
+        session.user.role = token.role as string || "user"
+        
+        console.log("✅ [AUTH] Session created with user ID:", session.user.id)
       }
+      
       return session
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
+      console.log("🔐 [AUTH] Processing JWT for:", token.email)
+      
       if (user) {
         token.id = user.id
-        token.role = (user as any).role // Cast to any to access role
+        token.role = (user as any).role || "user"
       }
+      
+      // Ensure we always have a role
+      if (!token.role) {
+        token.role = "user"
+      }
+      
       return token
     },
     async redirect({ url, baseUrl }) {
+      console.log("🔐 [AUTH] Handling redirect:", { url, baseUrl })
+      
       // Handle redirect after sign in
       const callbackUrl = new URL(url).searchParams.get("callbackUrl")
       if (callbackUrl) {
@@ -102,4 +78,5 @@ export const authOptions: NextAuthOptions = {
     signIn: "/login", // Custom sign-in page
   },
   secret: process.env.NEXTAUTH_SECRET, // IMPORTANT: Set this in your .env.local
+  debug: process.env.NODE_ENV === "development", // Enable debug in development
 }

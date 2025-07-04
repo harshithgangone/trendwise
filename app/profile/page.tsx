@@ -50,6 +50,7 @@ export default function ProfilePage() {
     console.log("🔍 [PROFILE DEBUG] Session status:", status)
     console.log("🔍 [PROFILE DEBUG] Session data:", session)
     console.log("🔍 [PROFILE DEBUG] User ID:", session?.user?.id)
+    console.log("🔍 [PROFILE DEBUG] User email:", session?.user?.email)
   }, [session, status])
 
   useEffect(() => {
@@ -64,20 +65,21 @@ export default function ProfilePage() {
       return
     }
 
-    if (session?.user?.id) {
+    if (session?.user) {
       console.log("✅ [PROFILE DEBUG] User authenticated, fetching preferences...")
       fetchUserPreferences()
     } else {
-      console.log("⚠️ [PROFILE DEBUG] Session exists but no user ID")
+      console.log("⚠️ [PROFILE DEBUG] Session exists but no user data")
       setLoading(false)
-      setError("User ID not found in session")
+      setError("User data not found in session")
     }
   }, [session, status])
 
   const fetchUserPreferences = async () => {
-    if (!session?.user?.id) {
-      console.log("❌ [PROFILE DEBUG] No user ID available for preferences fetch")
+    if (!session?.user) {
+      console.log("❌ [PROFILE DEBUG] No user data available for preferences fetch")
       setLoading(false)
+      setError("No user session available")
       return
     }
 
@@ -85,9 +87,8 @@ export default function ProfilePage() {
       setLoading(true)
       setError(null)
       
-      console.log(`👤 [PROFILE DEBUG] Fetching preferences for user: ${session.user.id}`)
+      console.log(`👤 [PROFILE DEBUG] Fetching preferences for user: ${session.user.id || session.user.email}`)
       
-      // Try the direct API route first
       const apiUrl = `/api/user/preferences`
       console.log(`🌐 [PROFILE DEBUG] API URL: ${apiUrl}`)
 
@@ -96,63 +97,39 @@ export default function ProfilePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include", // Include cookies for authentication
+        credentials: "include",
       })
 
       console.log(`📡 [PROFILE DEBUG] Response status: ${response.status}`)
-      console.log(`📡 [PROFILE DEBUG] Response headers:`, Object.fromEntries(response.headers.entries()))
 
       if (response.ok) {
         const data = await response.json()
         console.log(`✅ [PROFILE DEBUG] Fetched preferences successfully:`, data)
         
-        // Validate data structure
         if (data.success && data.preferences) {
           setPreferences(data.preferences)
           console.log(`✅ [PROFILE DEBUG] Preferences set:`, {
+            userId: data.preferences.userId,
             likedCount: data.preferences.likedArticles?.length || 0,
             savedCount: data.preferences.savedArticles?.length || 0,
             recentCount: data.preferences.recentlyViewed?.length || 0,
           })
         } else {
           console.log(`⚠️ [PROFILE DEBUG] Invalid data structure:`, data)
-          // Set empty preferences if structure is invalid
-          setPreferences({
-            userId: session.user.id,
-            likedArticles: [],
-            savedArticles: [],
-            recentlyViewed: [],
-          })
+          setError("Invalid response from server")
         }
       } else {
         const errorText = await response.text()
         console.error(`❌ [PROFILE DEBUG] Failed to fetch preferences: ${response.status}`)
         console.error(`❌ [PROFILE DEBUG] Error response:`, errorText)
-        
         setError(`Failed to load preferences (${response.status})`)
-        
-        // Set empty preferences as fallback
-        setPreferences({
-          userId: session.user.id,
-          likedArticles: [],
-          savedArticles: [],
-          recentlyViewed: [],
-        })
       }
     } catch (error) {
       console.error("❌ [PROFILE DEBUG] Network error:", error)
       setError("Network error while loading preferences")
-      
-      // Set empty preferences as fallback
-      setPreferences({
-        userId: session?.user?.id || "",
-        likedArticles: [],
-        savedArticles: [],
-        recentlyViewed: [],
-      })
     } finally {
       setLoading(false)
-      console.log("🏁 [PROFILE DEBUG] Fetch completed, loading set to false")
+      console.log("🏁 [PROFILE DEBUG] Fetch completed")
     }
   }
 
@@ -164,6 +141,7 @@ export default function ProfilePage() {
       hasPreferences: !!preferences,
       sessionStatus: status,
       hasSession: !!session,
+      hasUserId: !!session?.user?.id,
     })
   }, [loading, error, preferences, status, session])
 
@@ -228,7 +206,7 @@ export default function ProfilePage() {
   }
 
   // Error state
-  if (error && !preferences) {
+  if (error) {
     console.log("❌ [PROFILE DEBUG] Rendering error state:", error)
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -472,6 +450,7 @@ export default function ProfilePage() {
                     sessionStatus: status,
                     hasSession: !!session,
                     userId: session?.user?.id,
+                    userEmail: session?.user?.email,
                     loading,
                     error,
                     hasPreferences: !!preferences,
