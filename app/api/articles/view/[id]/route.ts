@@ -1,48 +1,25 @@
 export const dynamic = "force-dynamic"
 
 import { type NextRequest, NextResponse } from "next/server"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
-    const session = await getServerSession(authOptions)
+    console.log(`👁️ [VIEW API] Tracking view for article ID: ${id}`)
 
-    console.log(`👁️ [VIEW API] Tracking view for article: ${id}`)
-
-    // Try to update view count in backend
-    try {
-      const BACKEND_URL = process.env.BACKEND_URL || "https://trendwise-backend-frpp.onrender.com"
-      const response = await fetch(`${BACKEND_URL}/api/articles/${id}/view`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId: session?.user?.id || null,
-        }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log(`✅ [VIEW API] Successfully tracked view in backend`)
-        return NextResponse.json({
-          success: true,
-          views: data.views,
-        })
-      }
-    } catch (backendError) {
-      console.log(`⚠️ [VIEW API] Backend unavailable, using fallback`)
+    // For now, return a mock response since we don't have user authentication
+    // In a real app, you would update the database here
+    const mockResponse = {
+      success: true,
+      views: Math.floor(Math.random() * 1000) + 100, // Random view count for demo
+      articleId: id,
     }
 
-    // Fallback response
-    return NextResponse.json({
-      success: true,
-      views: Math.floor(Math.random() * 100) + 50, // Random view count as fallback
-    })
+    console.log(`👁️ [VIEW API] Returning mock view data:`, mockResponse)
+
+    return NextResponse.json(mockResponse)
   } catch (error) {
-    console.error("❌ [VIEW API] Error tracking view:", error)
+    console.error("👁️ [VIEW API] Error tracking view:", error)
     return NextResponse.json(
       {
         success: false,

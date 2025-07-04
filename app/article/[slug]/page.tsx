@@ -32,16 +32,19 @@ interface Article {
 
 async function getArticle(slug: string): Promise<Article | null> {
   try {
-    console.log(`🔍 [ARTICLE PAGE] Fetching article with slug: ${slug}`)
+    console.log(`🔍 [ARTICLE PAGE] Starting fetch for slug: ${slug}`)
+    console.log(`🔍 [ARTICLE PAGE] Process env VERCEL_URL: ${process.env.VERCEL_URL}`)
+    console.log(`🔍 [ARTICLE PAGE] Process env NEXT_PUBLIC_SITE_URL: ${process.env.NEXT_PUBLIC_SITE_URL}`)
 
     // Use the current domain for API calls
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : "https://trendwise-frontend.vercel.app"
+      : process.env.NEXT_PUBLIC_SITE_URL || "https://trendwise-frontend.vercel.app"
 
-    console.log(`🌐 [ARTICLE PAGE] Using base URL: ${baseUrl}`)
+    const apiUrl = `${baseUrl}/api/articles/${slug}`
+    console.log(`🌐 [ARTICLE PAGE] Full API URL: ${apiUrl}`)
 
-    const response = await fetch(`${baseUrl}/api/articles/${slug}`, {
+    const response = await fetch(apiUrl, {
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
@@ -50,17 +53,23 @@ async function getArticle(slug: string): Promise<Article | null> {
     })
 
     console.log(`📡 [ARTICLE PAGE] API Response status: ${response.status}`)
+    console.log(`📡 [ARTICLE PAGE] API Response headers:`, Object.fromEntries(response.headers.entries()))
 
     if (!response.ok) {
       console.error(`❌ [ARTICLE PAGE] Failed to fetch article: ${response.status} ${response.statusText}`)
+      const errorText = await response.text()
+      console.error(`❌ [ARTICLE PAGE] Error response body: ${errorText}`)
       return null
     }
 
     const data = await response.json()
     console.log(`✅ [ARTICLE PAGE] Successfully fetched article data:`, {
+      success: data.success,
+      hasArticle: !!data.article,
       title: data.article?.title,
       slug: data.article?.slug,
       hasContent: !!data.article?.content,
+      contentLength: data.article?.content?.length,
     })
 
     if (!data.success || !data.article) {
@@ -71,19 +80,25 @@ async function getArticle(slug: string): Promise<Article | null> {
     return data.article
   } catch (error) {
     console.error("❌ [ARTICLE PAGE] Error fetching article:", error)
+    console.error("❌ [ARTICLE PAGE] Error stack:", error instanceof Error ? error.stack : "No stack trace")
     return null
   }
 }
 
 export async function generateMetadata({ params }: ArticlePageProps): Promise<Metadata> {
+  console.log(`🏷️ [METADATA] Generating metadata for slug: ${params.slug}`)
+
   const article = await getArticle(params.slug)
 
   if (!article) {
+    console.log(`🏷️ [METADATA] No article found, using default metadata`)
     return {
       title: "Article Not Found - TrendWise",
       description: "The requested article could not be found.",
     }
   }
+
+  console.log(`🏷️ [METADATA] Generated metadata for: ${article.title}`)
 
   return {
     title: `${article.title} - TrendWise`,
@@ -116,6 +131,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
   console.log(`📄 [ARTICLE PAGE] Rendering page for slug: ${params.slug}`)
+  console.log(`📄 [ARTICLE PAGE] Params object:`, params)
 
   const article = await getArticle(params.slug)
 

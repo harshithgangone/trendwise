@@ -1,42 +1,48 @@
+"use client"
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Home, Search, ArrowLeft, FileText } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
+import { FileText, Home, Search, ArrowLeft } from "lucide-react"
 
 export default function NotFound() {
+  console.log(`🚫 [404] Not found page rendered`)
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md text-center">
-        <CardHeader>
-          <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-8 text-center">
+          <div className="w-16 h-16 mx-auto mb-6 bg-red-100 rounded-full flex items-center justify-center">
             <FileText className="w-8 h-8 text-red-600" />
           </div>
-          <CardTitle className="text-2xl font-bold text-gray-900">Page Not Found</CardTitle>
-          <p className="text-gray-600 mt-2">
-            Sorry, we couldn't find the article you're looking for. It might have been moved or doesn't exist.
+
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Page Not Found</h1>
+          <p className="text-gray-600 mb-6">
+            Sorry, we couldn't find the article you're looking for.
+            <br />
+            It might have been moved or doesn't exist.
           </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button asChild className="flex-1">
-              <Link href="/" className="flex items-center justify-center gap-2">
-                <Home className="w-4 h-4" />
+
+          <div className="space-y-3">
+            <Button asChild className="w-full">
+              <Link href="/">
+                <Home className="w-4 h-4 mr-2" />
                 Go Home
               </Link>
             </Button>
-            <Button variant="outline" asChild className="flex-1 bg-transparent">
-              <Link href="/trending" className="flex items-center justify-center gap-2">
-                <Search className="w-4 h-4" />
+
+            <Button variant="outline" asChild className="w-full bg-transparent">
+              <Link href="/">
+                <Search className="w-4 h-4 mr-2" />
                 Browse Articles
               </Link>
             </Button>
-          </div>
-          <Button variant="ghost" asChild className="w-full">
-            <Link href="javascript:history.back()" className="flex items-center justify-center gap-2">
-              <ArrowLeft className="w-4 h-4" />
+
+            <Button variant="ghost" onClick={() => window.history.back()} className="w-full">
+              <ArrowLeft className="w-4 h-4 mr-2" />
               Go Back
-            </Link>
-          </Button>
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

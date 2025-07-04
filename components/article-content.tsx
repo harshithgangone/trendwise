@@ -60,19 +60,36 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const [viewCount, setViewCount] = useState(article.views || 0)
   const [copied, setCopied] = useState(false)
 
+  console.log(`🎨 [ARTICLE CONTENT] Rendering article:`, {
+    _id: article._id,
+    title: article.title,
+    slug: article.slug,
+    hasContent: !!article.content,
+    contentLength: article.content?.length,
+  })
+
   // Track view on component mount
   useEffect(() => {
     const trackView = async () => {
       try {
+        console.log(`👁️ [VIEW TRACKING] Tracking view for article: ${article._id}`)
+
         const response = await fetch(`/api/articles/view/${article._id}`, {
           method: "POST",
         })
+
+        console.log(`👁️ [VIEW TRACKING] Response status: ${response.status}`)
+
         if (response.ok) {
           const data = await response.json()
+          console.log(`👁️ [VIEW TRACKING] View tracked successfully:`, data)
           setViewCount(data.views || viewCount + 1)
+        } else {
+          console.log(`👁️ [VIEW TRACKING] Failed to track view, incrementing locally`)
+          setViewCount((prev) => prev + 1)
         }
       } catch (error) {
-        console.error("Error tracking view:", error)
+        console.error("👁️ [VIEW TRACKING] Error tracking view:", error)
         // Optimistically increment view count
         setViewCount((prev) => prev + 1)
       }
@@ -82,7 +99,10 @@ export function ArticleContent({ article }: ArticleContentProps) {
   }, [article._id, viewCount])
 
   const handleLike = async () => {
+    console.log(`❤️ [LIKE] Attempting to like article: ${article._id}`)
+
     if (!session) {
+      console.log(`❤️ [LIKE] No session, showing login prompt`)
       toast({
         title: "Login Required",
         description: "Please log in to like articles.",
@@ -96,8 +116,11 @@ export function ArticleContent({ article }: ArticleContentProps) {
         method: "POST",
       })
 
+      console.log(`❤️ [LIKE] Response status: ${response.status}`)
+
       if (response.ok) {
         const data = await response.json()
+        console.log(`❤️ [LIKE] Like response:`, data)
         setIsLiked(data.liked)
         setLikeCount(data.likes)
         toast({
@@ -106,7 +129,7 @@ export function ArticleContent({ article }: ArticleContentProps) {
         })
       }
     } catch (error) {
-      console.error("Error liking article:", error)
+      console.error("❤️ [LIKE] Error liking article:", error)
       toast({
         title: "Error",
         description: "Failed to like article. Please try again.",
@@ -116,7 +139,10 @@ export function ArticleContent({ article }: ArticleContentProps) {
   }
 
   const handleSave = async () => {
+    console.log(`🔖 [SAVE] Attempting to save article: ${article._id}`)
+
     if (!session) {
+      console.log(`🔖 [SAVE] No session, showing login prompt`)
       toast({
         title: "Login Required",
         description: "Please log in to save articles.",
@@ -130,8 +156,11 @@ export function ArticleContent({ article }: ArticleContentProps) {
         method: "POST",
       })
 
+      console.log(`🔖 [SAVE] Response status: ${response.status}`)
+
       if (response.ok) {
         const data = await response.json()
+        console.log(`🔖 [SAVE] Save response:`, data)
         setIsSaved(data.saved)
         setSaveCount(data.saves)
         toast({
@@ -140,7 +169,7 @@ export function ArticleContent({ article }: ArticleContentProps) {
         })
       }
     } catch (error) {
-      console.error("Error saving article:", error)
+      console.error("🔖 [SAVE] Error saving article:", error)
       toast({
         title: "Error",
         description: "Failed to save article. Please try again.",
@@ -152,6 +181,8 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const handleShare = async (platform?: string) => {
     const url = `${window.location.origin}/article/${article.slug}`
     const text = `Check out this article: ${article.title}`
+
+    console.log(`📤 [SHARE] Sharing article:`, { platform, url, text })
 
     try {
       if (platform === "twitter") {
@@ -182,7 +213,7 @@ export function ArticleContent({ article }: ArticleContentProps) {
         })
       }
     } catch (error) {
-      console.error("Error sharing:", error)
+      console.error("📤 [SHARE] Error sharing:", error)
     }
   }
 
@@ -289,6 +320,10 @@ export function ArticleContent({ article }: ArticleContentProps) {
             fill
             className="object-cover"
             priority
+            onError={(e) => {
+              console.log(`🖼️ [IMAGE] Failed to load image: ${article.thumbnail}`)
+              e.currentTarget.src = "/placeholder.svg?height=400&width=800"
+            }}
           />
         </div>
       </header>
