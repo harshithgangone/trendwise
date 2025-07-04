@@ -16,13 +16,27 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
     console.log(`📖 [FRONTEND API] Request method: ${request.method}`)
     console.log(`📖 [FRONTEND API] Backend URL: ${BACKEND_URL}`)
     console.log(`📖 [FRONTEND API] Timestamp: ${new Date().toISOString()}`)
+    console.log(`📖 [FRONTEND API] Params received:`, params)
+
+    // Validate slug
+    if (!slug || slug.trim() === "") {
+      console.error(`❌ [FRONTEND API] Invalid slug provided: "${slug}"`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid slug",
+          message: "Article slug is required",
+        },
+        { status: 400 },
+      )
+    }
 
     // Try to fetch from backend first
     try {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 15000)
 
-      const backendUrl = `${BACKEND_URL}/api/articles/${slug}`
+      const backendUrl = `${BACKEND_URL}/api/articles/${encodeURIComponent(slug)}`
       console.log(`🌐 [FRONTEND API] Calling backend URL: ${backendUrl}`)
 
       const response = await fetch(backendUrl, {
@@ -105,6 +119,11 @@ export async function GET(request: NextRequest, { params }: { params: { slug: st
           console.error(`❌ [FRONTEND API] Invalid backend response structure:`, data)
           throw new Error("Invalid response structure from backend")
         }
+      } else if (response.status === 404) {
+        const errorData = await response.json().catch(() => ({}))
+        console.log(`🔍 [FRONTEND API] Article not found in backend:`, errorData)
+        console.log(`🔍 [FRONTEND API] Available slugs from backend:`, errorData.availableSlugs)
+        throw new Error(`Article not found: ${slug}`)
       } else {
         const errorText = await response.text()
         console.log(`⚠️ [FRONTEND API] Backend responded with ${response.status} for slug: ${slug}`)

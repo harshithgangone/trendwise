@@ -44,9 +44,18 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
   const [likeCount, setLikeCount] = useState(article.likes || 0)
   const [saveCount, setSaveCount] = useState(article.saves || 0)
 
+  console.log(`🎴 [ARTICLE CARD] Rendering card for article:`, {
+    _id: article._id,
+    title: article.title,
+    slug: article.slug,
+    variant,
+  })
+
   const handleLike = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    console.log(`❤️ [ARTICLE CARD] Like clicked for article: ${article._id}`)
 
     try {
       const response = await fetch(`/api/articles/like/${article._id}`, {
@@ -55,6 +64,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
 
       if (response.ok) {
         const data = await response.json()
+        console.log(`❤️ [ARTICLE CARD] Like response:`, data)
         setIsLiked(data.liked)
         setLikeCount(data.likes)
       } else if (response.status === 401) {
@@ -65,13 +75,15 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
         })
       }
     } catch (error) {
-      console.error("Error liking article:", error)
+      console.error("❤️ [ARTICLE CARD] Error liking article:", error)
     }
   }
 
   const handleSave = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    console.log(`🔖 [ARTICLE CARD] Save clicked for article: ${article._id}`)
 
     try {
       const response = await fetch(`/api/articles/save/${article._id}`, {
@@ -80,6 +92,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
 
       if (response.ok) {
         const data = await response.json()
+        console.log(`🔖 [ARTICLE CARD] Save response:`, data)
         setIsSaved(data.saved)
         setSaveCount(data.saves)
       } else if (response.status === 401) {
@@ -90,7 +103,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
         })
       }
     } catch (error) {
-      console.error("Error saving article:", error)
+      console.error("🔖 [ARTICLE CARD] Error saving article:", error)
     }
   }
 
@@ -99,6 +112,8 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
     e.stopPropagation()
 
     const url = `${window.location.origin}/article/${article.slug}`
+
+    console.log(`📤 [ARTICLE CARD] Share clicked for article:`, { slug: article.slug, url })
 
     try {
       if (navigator.share) {
@@ -115,8 +130,12 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
         })
       }
     } catch (error) {
-      console.error("Error sharing:", error)
+      console.error("📤 [ARTICLE CARD] Error sharing:", error)
     }
+  }
+
+  const handleCardClick = () => {
+    console.log(`🔗 [ARTICLE CARD] Card clicked, navigating to: /article/${article.slug}`)
   }
 
   if (variant === "compact") {
@@ -128,7 +147,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
         whileHover={{ y: -5 }}
         className="group"
       >
-        <Link href={`/article/${article.slug}`}>
+        <Link href={`/article/${article.slug}`} onClick={handleCardClick}>
           <Card className="h-full hover:shadow-lg transition-all duration-300 cursor-pointer">
             <CardContent className="p-4">
               <div className="flex gap-4">
@@ -174,7 +193,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
       whileHover={{ y: -5 }}
       className="group"
     >
-      <Link href={`/article/${article.slug}`}>
+      <Link href={`/article/${article.slug}`} onClick={handleCardClick}>
         <Card className="h-full hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden">
           {/* Article Image */}
           <div className="relative h-48 overflow-hidden">
@@ -183,11 +202,13 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
               alt={article.title}
               fill
               className="object-cover group-hover:scale-105 transition-transform duration-300"
+              onError={(e) => {
+                console.log(`🖼️ [ARTICLE CARD] Failed to load image: ${article.thumbnail}`)
+                e.currentTarget.src = "/placeholder.svg?height=192&width=400"
+              }}
             />
             <div className="absolute top-4 left-4 flex gap-2">
-              <Badge variant="secondary" className="bg-white/90 text-gray-900">
-                {article.category}
-              </Badge>
+              <Badge variant="secondary">{article.category}</Badge>
               {article.featured && (
                 <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white">Featured</Badge>
               )}
@@ -205,7 +226,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
           </CardHeader>
 
           <CardContent className="pt-0">
-            {/* Author and Meta */}
+            {/* Author Info */}
             <div className="flex items-center gap-3 mb-4">
               <Avatar className="h-8 w-8">
                 <AvatarImage src="/placeholder.svg" alt={article.author} />
@@ -220,7 +241,7 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {article.readTime}m
+                    {article.readTime} min
                   </span>
                 </div>
               </div>
@@ -234,6 +255,11 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
                     {tag}
                   </Badge>
                 ))}
+                {article.tags.length > 3 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{article.tags.length - 3}
+                  </Badge>
+                )}
               </div>
             )}
           </CardContent>
@@ -243,36 +269,29 @@ export function ArticleCard({ article, variant = "default" }: ArticleCardProps) 
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Eye className="w-4 h-4" />
-                  {article.views}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Heart className="w-4 h-4" />
-                  {likeCount}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Bookmark className="w-4 h-4" />
-                  {saveCount}
+                  {article.views.toLocaleString()}
                 </span>
               </div>
-
               <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleLike}
-                  className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+                  className={`h-8 px-2 ${isLiked ? "text-red-600" : ""}`}
                 >
-                  <Heart className={`w-4 h-4 ${isLiked ? "fill-current text-red-600" : ""}`} />
+                  <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
+                  <span className="ml-1 text-xs">{likeCount}</span>
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={handleSave}
-                  className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
+                  className={`h-8 px-2 ${isSaved ? "text-blue-600" : ""}`}
                 >
-                  <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current text-blue-600" : ""}`} />
+                  <Bookmark className={`w-4 h-4 ${isSaved ? "fill-current" : ""}`} />
+                  <span className="ml-1 text-xs">{saveCount}</span>
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleShare} className="h-8 w-8 p-0 hover:bg-gray-50">
+                <Button variant="ghost" size="sm" onClick={handleShare} className="h-8 px-2">
                   <Share2 className="w-4 h-4" />
                 </Button>
               </div>

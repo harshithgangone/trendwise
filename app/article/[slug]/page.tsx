@@ -32,55 +32,74 @@ interface Article {
 
 async function getArticle(slug: string): Promise<Article | null> {
   try {
+    console.log(`🔍 [ARTICLE PAGE] ==========================================`)
     console.log(`🔍 [ARTICLE PAGE] Starting fetch for slug: ${slug}`)
     console.log(`🔍 [ARTICLE PAGE] Process env VERCEL_URL: ${process.env.VERCEL_URL}`)
     console.log(`🔍 [ARTICLE PAGE] Process env NEXT_PUBLIC_SITE_URL: ${process.env.NEXT_PUBLIC_SITE_URL}`)
 
-    // Use the current domain for API calls
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_SITE_URL || "https://trendwise-frontend.vercel.app"
+    // Use multiple fallback URLs to ensure we can reach the API
+    const possibleBaseUrls = [
+      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+      process.env.NEXT_PUBLIC_SITE_URL,
+      "https://trendwise-frontend.vercel.app",
+      typeof window !== "undefined" ? window.location.origin : null,
+    ].filter(Boolean)
 
-    const apiUrl = `${baseUrl}/api/articles/${slug}`
-    console.log(`🌐 [ARTICLE PAGE] Full API URL: ${apiUrl}`)
+    console.log(`🌐 [ARTICLE PAGE] Possible base URLs:`, possibleBaseUrls)
 
-    const response = await fetch(apiUrl, {
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "TrendWise-Frontend/1.0",
-      },
-    })
+    let lastError: Error | null = null
 
-    console.log(`📡 [ARTICLE PAGE] API Response status: ${response.status}`)
-    console.log(`📡 [ARTICLE PAGE] API Response headers:`, Object.fromEntries(response.headers.entries()))
+    // Try each URL until one works
+    for (const baseUrl of possibleBaseUrls) {
+      try {
+        const apiUrl = `${baseUrl}/api/articles/${encodeURIComponent(slug)}`
+        console.log(`🌐 [ARTICLE PAGE] Trying API URL: ${apiUrl}`)
 
-    if (!response.ok) {
-      console.error(`❌ [ARTICLE PAGE] Failed to fetch article: ${response.status} ${response.statusText}`)
-      const errorText = await response.text()
-      console.error(`❌ [ARTICLE PAGE] Error response body: ${errorText}`)
-      return null
+        const response = await fetch(apiUrl, {
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "TrendWise-Frontend/1.0",
+          },
+        })
+
+        console.log(`📡 [ARTICLE PAGE] API Response status: ${response.status}`)
+
+        if (response.ok) {
+          const data = await response.json()
+          console.log(`✅ [ARTICLE PAGE] Successfully fetched article data:`, {
+            success: data.success,
+            hasArticle: !!data.article,
+            title: data.article?.title,
+            slug: data.article?.slug,
+            hasContent: !!data.article?.content,
+            contentLength: data.article?.content?.length,
+            source: data.source,
+          })
+
+          if (data.success && data.article) {
+            console.log(`🔍 [ARTICLE PAGE] ==========================================`)
+            return data.article
+          }
+        } else {
+          const errorText = await response.text()
+          console.error(`❌ [ARTICLE PAGE] Failed with ${baseUrl}: ${response.status} ${response.statusText}`)
+          console.error(`❌ [ARTICLE PAGE] Error response: ${errorText}`)
+          lastError = new Error(`HTTP ${response.status}: ${errorText}`)
+        }
+      } catch (urlError) {
+        console.error(`❌ [ARTICLE PAGE] Error with ${baseUrl}:`, urlError)
+        lastError = urlError instanceof Error ? urlError : new Error(String(urlError))
+      }
     }
 
-    const data = await response.json()
-    console.log(`✅ [ARTICLE PAGE] Successfully fetched article data:`, {
-      success: data.success,
-      hasArticle: !!data.article,
-      title: data.article?.title,
-      slug: data.article?.slug,
-      hasContent: !!data.article?.content,
-      contentLength: data.article?.content?.length,
-    })
-
-    if (!data.success || !data.article) {
-      console.error(`❌ [ARTICLE PAGE] Invalid response structure:`, data)
-      return null
-    }
-
-    return data.article
+    console.error(`❌ [ARTICLE PAGE] All URLs failed. Last error:`, lastError)
+    console.log(`🔍 [ARTICLE PAGE] ==========================================`)
+    return null
   } catch (error) {
-    console.error("❌ [ARTICLE PAGE] Error fetching article:", error)
+    console.error("❌ [ARTICLE PAGE] Critical error fetching article:", error)
     console.error("❌ [ARTICLE PAGE] Error stack:", error instanceof Error ? error.stack : "No stack trace")
+    console.log(`🔍 [ARTICLE PAGE] ==========================================`)
     return null
   }
 }
@@ -130,17 +149,21 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
 }
 
 export default async function ArticlePage({ params }: ArticlePageProps) {
+  console.log(`📄 [ARTICLE PAGE] ==========================================`)
   console.log(`📄 [ARTICLE PAGE] Rendering page for slug: ${params.slug}`)
   console.log(`📄 [ARTICLE PAGE] Params object:`, params)
+  console.log(`📄 [ARTICLE PAGE] Timestamp: ${new Date().toISOString()}`)
 
   const article = await getArticle(params.slug)
 
   if (!article) {
     console.log(`❌ [ARTICLE PAGE] Article not found, showing 404: ${params.slug}`)
+    console.log(`📄 [ARTICLE PAGE] ==========================================`)
     notFound()
   }
 
   console.log(`✅ [ARTICLE PAGE] Successfully rendering article: ${article.title}`)
+  console.log(`📄 [ARTICLE PAGE] ==========================================`)
 
   return (
     <div className="min-h-screen bg-white">

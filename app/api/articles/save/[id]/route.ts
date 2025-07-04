@@ -5,20 +5,21 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
-    console.log(`🔖 [SAVE API] Processing save for article ID: ${id}`)
+    console.log(`🔖 [SAVE API] Processing save for article: ${id}`)
 
-    // For now, return a mock response since we don't have user authentication
-    // In a real app, you would check authentication and update the database
-    const mockResponse = {
+    // For now, just return a mock response since we don't have user authentication set up
+    // In a real app, you'd check if user is logged in and toggle their save status
+    const mockSaved = Math.random() > 0.5
+    const mockSaves = Math.floor(Math.random() * 50) + 5
+
+    console.log(`🔖 [SAVE API] Mock save status: ${mockSaved}, count: ${mockSaves}`)
+
+    return NextResponse.json({
       success: true,
-      saved: Math.random() > 0.5, // Random save state for demo
-      saves: Math.floor(Math.random() * 50) + 5, // Random save count for demo
+      saved: mockSaved,
+      saves: mockSaves,
       articleId: id,
-    }
-
-    console.log(`🔖 [SAVE API] Returning mock save data:`, mockResponse)
-
-    return NextResponse.json(mockResponse)
+    })
   } catch (error) {
     console.error("🔖 [SAVE API] Error processing save:", error)
     return NextResponse.json(

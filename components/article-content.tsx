@@ -60,12 +60,15 @@ export function ArticleContent({ article }: ArticleContentProps) {
   const [viewCount, setViewCount] = useState(article.views || 0)
   const [copied, setCopied] = useState(false)
 
+  console.log(`🎨 [ARTICLE CONTENT] ==========================================`)
   console.log(`🎨 [ARTICLE CONTENT] Rendering article:`, {
     _id: article._id,
     title: article.title,
     slug: article.slug,
     hasContent: !!article.content,
     contentLength: article.content?.length,
+    author: article.author,
+    category: article.category,
   })
 
   // Track view on component mount
@@ -216,6 +219,9 @@ export function ArticleContent({ article }: ArticleContentProps) {
       console.error("📤 [SHARE] Error sharing:", error)
     }
   }
+
+  console.log(`🎨 [ARTICLE CONTENT] Component rendered successfully`)
+  console.log(`🎨 [ARTICLE CONTENT] ==========================================`)
 
   return (
     <motion.article

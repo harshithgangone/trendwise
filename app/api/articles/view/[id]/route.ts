@@ -5,19 +5,19 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
-    console.log(`👁️ [VIEW API] Tracking view for article ID: ${id}`)
+    console.log(`👁️ [VIEW API] Tracking view for article: ${id}`)
 
-    // For now, return a mock response since we don't have user authentication
-    // In a real app, you would update the database here
-    const mockResponse = {
+    // For now, just return a mock response since we don't have user tracking set up
+    // In a real app, you'd increment the view count in your database
+    const mockViews = Math.floor(Math.random() * 1000) + 100
+
+    console.log(`👁️ [VIEW API] Mock view count: ${mockViews}`)
+
+    return NextResponse.json({
       success: true,
-      views: Math.floor(Math.random() * 1000) + 100, // Random view count for demo
+      views: mockViews,
       articleId: id,
-    }
-
-    console.log(`👁️ [VIEW API] Returning mock view data:`, mockResponse)
-
-    return NextResponse.json(mockResponse)
+    })
   } catch (error) {
     console.error("👁️ [VIEW API] Error tracking view:", error)
     return NextResponse.json(

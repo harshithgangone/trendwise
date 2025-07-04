@@ -5,20 +5,21 @@ import { type NextRequest, NextResponse } from "next/server"
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params
-    console.log(`❤️ [LIKE API] Processing like for article ID: ${id}`)
+    console.log(`❤️ [LIKE API] Processing like for article: ${id}`)
 
-    // For now, return a mock response since we don't have user authentication
-    // In a real app, you would check authentication and update the database
-    const mockResponse = {
+    // For now, just return a mock response since we don't have user authentication set up
+    // In a real app, you'd check if user is logged in and toggle their like status
+    const mockLiked = Math.random() > 0.5
+    const mockLikes = Math.floor(Math.random() * 100) + 10
+
+    console.log(`❤️ [LIKE API] Mock like status: ${mockLiked}, count: ${mockLikes}`)
+
+    return NextResponse.json({
       success: true,
-      liked: Math.random() > 0.5, // Random like state for demo
-      likes: Math.floor(Math.random() * 100) + 10, // Random like count for demo
+      liked: mockLiked,
+      likes: mockLikes,
       articleId: id,
-    }
-
-    console.log(`❤️ [LIKE API] Returning mock like data:`, mockResponse)
-
-    return NextResponse.json(mockResponse)
+    })
   } catch (error) {
     console.error("❤️ [LIKE API] Error processing like:", error)
     return NextResponse.json(

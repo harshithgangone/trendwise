@@ -44,7 +44,7 @@ async function articleRoutes(fastify, options) {
         title: article.title,
         slug: article.slug,
         excerpt: article.excerpt || article.content?.substring(0, 200) + "..." || "No excerpt available",
-        thumbnail: article.thumbnail || "/placeholder.svg?height=224&width=400",
+        thumbnail: article.thumbnail || article.featuredImage || "/placeholder.svg?height=224&width=400",
         createdAt: article.createdAt,
         tags: article.tags || [],
         category: article.category || "General",
@@ -53,6 +53,7 @@ async function articleRoutes(fastify, options) {
         featured: article.featured || false,
         likes: article.likes || Math.floor(Math.random() * 50) + 10,
         saves: article.saves || Math.floor(Math.random() * 20) + 5,
+        author: article.author || "TrendWise AI",
       }))
 
       const response = {
@@ -89,32 +90,59 @@ async function articleRoutes(fastify, options) {
     }
   })
 
-  // Get single article by slug
+  // Get single article by slug - THIS IS THE CRITICAL ROUTE
   fastify.get("/api/articles/:slug", async (request, reply) => {
     try {
       const { slug } = request.params
+      console.log(`📖 [ARTICLES] ==========================================`)
       console.log(`📖 [ARTICLES] GET /api/articles/${slug}`)
+      console.log(`📖 [ARTICLES] Request timestamp: ${new Date().toISOString()}`)
+      console.log(`📖 [ARTICLES] Request headers:`, request.headers)
 
+      // Find article by slug
+      console.log(`🔍 [ARTICLES] Searching for article with slug: ${slug}`)
       const article = await Article.findOne({ slug }).lean()
 
       if (!article) {
-        console.log(`❌ [ARTICLES] Article not found: ${slug}`)
+        console.log(`❌ [ARTICLES] Article not found with slug: ${slug}`)
+        console.log(`🔍 [ARTICLES] Checking all available slugs...`)
+
+        // Debug: Show all available slugs
+        const allArticles = await Article.find({}, { slug: 1, title: 1 }).lean()
+        console.log(
+          `📋 [ARTICLES] Available articles:`,
+          allArticles.map((a) => ({ slug: a.slug, title: a.title })),
+        )
+
         return reply.status(404).send({
           success: false,
           error: "Article not found",
+          requestedSlug: slug,
+          availableSlugs: allArticles.map((a) => a.slug),
         })
       }
 
+      console.log(`✅ [ARTICLES] Article found:`, {
+        _id: article._id,
+        title: article.title,
+        slug: article.slug,
+        hasContent: !!article.content,
+        contentLength: article.content?.length,
+        category: article.category,
+        author: article.author,
+      })
+
       // Increment views
       await Article.findByIdAndUpdate(article._id, { $inc: { views: 1 } })
+      console.log(`👁️ [ARTICLES] Incremented view count for article: ${article.title}`)
 
       const transformedArticle = {
         _id: article._id.toString(),
         title: article.title,
         slug: article.slug,
-        content: article.content,
-        excerpt: article.excerpt,
-        thumbnail: article.thumbnail,
+        content: article.content || `<h2>Content Loading</h2><p>This article content is being processed.</p>`,
+        excerpt: article.excerpt || article.content?.substring(0, 300) + "..." || "No excerpt available",
+        thumbnail: article.thumbnail || article.featuredImage || "/placeholder.svg?height=400&width=600",
         createdAt: article.createdAt,
         updatedAt: article.updatedAt,
         tags: article.tags || [],
@@ -124,19 +152,35 @@ async function articleRoutes(fastify, options) {
         featured: article.featured || false,
         likes: article.likes || 0,
         saves: article.saves || 0,
+        author: article.author || "TrendWise AI",
+        trending: article.trending || false,
       }
 
-      console.log(`✅ [ARTICLES] Article found: ${article.title}`)
+      console.log(`✅ [ARTICLES] Transformed article data:`, {
+        _id: transformedArticle._id,
+        title: transformedArticle.title,
+        slug: transformedArticle.slug,
+        hasContent: !!transformedArticle.content,
+        contentPreview: transformedArticle.content.substring(0, 100) + "...",
+      })
+
+      console.log(`📤 [ARTICLES] Sending successful response for: ${article.title}`)
+      console.log(`📖 [ARTICLES] ==========================================`)
+
       return {
         success: true,
         article: transformedArticle,
       }
     } catch (error) {
       console.error("❌ [ARTICLES] Error fetching article:", error)
+      console.error("❌ [ARTICLES] Error stack:", error.stack)
+      console.log(`📖 [ARTICLES] ==========================================`)
+
       return reply.status(500).send({
         success: false,
         error: "Failed to fetch article",
         message: error.message,
+        slug: request.params.slug,
       })
     }
   })
@@ -166,6 +210,8 @@ async function articleRoutes(fastify, options) {
         slug = `${baseSlug}-${counter}`
         counter++
       }
+
+      console.log(`🔗 [ARTICLES] Generated unique slug: ${slug}`)
 
       const article = new Article({
         ...articleData,
@@ -215,7 +261,7 @@ async function articleRoutes(fastify, options) {
         title: article.title,
         slug: article.slug,
         excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
-        thumbnail: article.thumbnail,
+        thumbnail: article.thumbnail || article.featuredImage,
         createdAt: article.createdAt,
         tags: article.tags || [],
         category: article.category || "General",
@@ -224,6 +270,7 @@ async function articleRoutes(fastify, options) {
         featured: article.featured || false,
         likes: article.likes || 0,
         saves: article.saves || 0,
+        author: article.author || "TrendWise AI",
       }))
 
       console.log(`✅ [ARTICLES] Found ${transformedArticles.length} trending articles`)
@@ -264,7 +311,7 @@ async function articleRoutes(fastify, options) {
         title: article.title,
         slug: article.slug,
         excerpt: article.excerpt || article.content?.substring(0, 200) + "...",
-        thumbnail: article.thumbnail,
+        thumbnail: article.thumbnail || article.featuredImage,
         createdAt: article.createdAt,
         tags: article.tags || [],
         category: article.category || "General",
@@ -273,6 +320,7 @@ async function articleRoutes(fastify, options) {
         featured: article.featured || false,
         likes: article.likes || 0,
         saves: article.saves || 0,
+        author: article.author || "TrendWise AI",
       }))
 
       console.log(`✅ [ARTICLES] Found ${transformedArticles.length} articles in category ${category}`)
